@@ -1,0 +1,15 @@
+# Build/coverage artifacts
+node_modules/
+dist/
+coverage/
+
+# Lockfile — formatted by npm, not Prettier
+package-lock.json
+
+# Immutable project artifacts — must never be rewritten by tooling
+PRD.md
+specs/
+
+# Agent/tooling config
+.opencode/
+opencode.jsonc
