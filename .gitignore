@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Coverage reports
+coverage/
+
+# Local environment — never commit secrets, endpoints, or credentials
+# (design §6.2: local dev reads a gitignored .env; .env.example holds placeholders only)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# AI-agent workspace tooling (local workspace config; not application source)
+.opencode/
+opencode.jsonc
