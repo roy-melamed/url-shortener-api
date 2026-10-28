@@ -1,0 +1,21 @@
+{
+  "jira": {
+    "site": "https://melamed.atlassian.net",
+    "projectKey": "URL",
+    "defaultAssignee": {
+      "name": "Roy Melamed",
+      "accountId": "70121:29771871-918e-4058-959a-76f07cb45530"
+    },
+    "agentOwner": {
+      "fieldId": "customfield_10043",
+      "options": {
+        "michael": "10020",
+        "jim": "10021",
+        "dwight": "10022",
+        "pam": "10023",
+        "developer": "10024",
+        "human": "10025"
+      }
+    }
+  }
+}

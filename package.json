@@ -1,0 +1,50 @@
+{
+  "name": "url-shortener-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-first URL shortener API (API + database only) — serverless on AWS Lambda + API Gateway HTTP API, PostgreSQL on AWS RDS. See PRD.md and specs/url-shortener-api/.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "test": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "migrate": "node-pg-migrate up --migrations-dir migrations"
+  },
+  "dependencies": {
+    "aws-lambda-fastify": "2.2.0",
+    "dotenv": "18.0.9",
+    "fastify": "5.12.7",
+    "node-pg-migrate": "9.0.0",
+    "openid-client": "6.8.8",
+    "pg": "8.23.1",
+    "pino": "10.4.0",
+    "pino-pretty": "13.2.0",
+    "qrcode": "1.5.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/aws-lambda": "8.10.164",
+    "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
+    "@types/qrcode": "1.5.6",
+    "@types/supertest": "7.2.1",
+    "@vitest/coverage-v8": "5.0.5",
+    "eslint": "10.13.0",
+    "prettier": "3.9.10",
+    "supertest": "7.3.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,0 +1,233 @@
+# Product Requirements Document: URL Shortener API
+
+**Status:** Approved
+**Date:** 2026-10-08
+
+---
+
+## 1. Product Overview
+
+A free, public URL shortening service (comparable to bit.ly) delivered **as an API and database only** — no frontend in scope. Users create accounts, shorten URLs with auto-generated or custom slugs, manage their links, and retrieve QR codes. Anonymous visitors hitting a short link receive an immediate redirect.
+
+The service targets large scale (10,000+ users, 1,000,000+ links), is privacy-first by design, and is intended as an open-source / side project with no monetization.
+
+## 2. Problem Statement
+
+Long URLs are unwieldy to share, hard to remember, and impossible to track. Existing services either charge for features, collect extensive visitor data, or are closed source. There is a need for a free, privacy-respecting URL shortener that anyone can self-host or rely on at scale, with a clean API that developers can integrate into their own tools.
+
+## 3. Target Users
+
+| Persona | Description |
+|---|---|
+| **General public** | Anyone wanting to shorten URLs for sharing (social media, messaging, print) |
+| **Developers** | Integrate shortening into their apps via the REST API with API keys |
+| **Self-hosters** | Operators who want a free, open-source, privacy-first shortener to run themselves |
+
+**Account holders** create and manage links. **Anonymous visitors** only follow redirects.
+
+## 4. Goals and Non-Goals
+
+### Goals
+- Provide a fast, reliable redirect service (301/302) at large scale.
+- Offer a full REST API: account management, link CRUD, QR code generation, analytics reads.
+- Support both auto-generated and user-chosen custom slugs (3–50 alphanumeric characters).
+- Privacy-first data handling: no visitor IPs or PII stored; aggregate counts only.
+- Enable abuse prevention through rate limiting and CAPTCHA at creation time.
+- Support idempotent link creation for safe API retries.
+- Deploy on serverless infrastructure with structured logging, metrics, health checks, and distributed tracing.
+
+### Non-Goals (MVP)
+- **No frontend/UI** — API and database only.
+- **No custom domains or branded domains** — single shared domain only; custom domains deferred to v2.
+- **No team/organization features** — personal accounts only.
+- **No monetization, paid tiers, or subscription plans** — completely free.
+- **No GDPR/CCPA compliance workflows** (export/erasure request tooling) — out of MVP scope, though general privacy principles apply.
+- **No bulk operations** — single-resource endpoints only.
+- **No webhooks or event notifications** — clients poll.
+- **No interstitial/preview redirect pages** — direct redirect only.
+- **No DMCA/takedown workflow tooling** — standard internet service.
+- **No technical architecture decisions** (frameworks, infrastructure specifics beyond the serverless + PostgreSQL constraints noted here) — left to the Architect.
+
+## 5. User Journeys
+
+### 5.1 Sign-up and first link (developer)
+1. User registers with email/password or social login (Google, GitHub).
+2. User verifies their email address (required before creating links).
+3. User obtains an API key from their account.
+4. User calls `POST /links` with a destination URL and an optional `Idempotency-Key`.
+5. Service returns the short code and full short URL.
+
+### 5.2 Anonymous visitor follows a short link
+1. Visitor requests `GET /{shortCode}` (or the short URL path).
+2. Service looks up the link:
+   - **Active:** responds with a 301/302 redirect to the destination (no intermediate page).
+   - **Expired:** responds `410 Gone` with a JSON error.
+   - **Deleted / unknown:** responds `404 Not Found` with a JSON error.
+3. An aggregate click event is recorded (no IP or PII).
+
+### 5.3 Link management
+1. Authenticated user lists their links, views one link, edits its destination URL, or deletes/disables it.
+2. User can view basic analytics for a link: total clicks, referrer breakdown, country breakdown.
+3. User can request a QR code (PNG or SVG) for a link.
+
+### 5.4 Custom slug creation
+1. User submits `POST /links` with a desired slug.
+2. If the slug is taken: service rejects it and suggests available alternatives.
+3. If taken slug belongs to an expired or deleted link: same rejection applies (first-come-first-served; no reclaiming in MVP — see Open Questions).
+
+## 6. Functional Requirements
+
+### FR-1: Accounts & Authentication
+- FR-1.1: Users can register with email + password, or via social login (Google, GitHub).
+- FR-1.2: Email verification is **required before creating links**. Unverified users receive an error on link creation.
+- FR-1.3: The API authenticates using **both**:
+  - **API keys** (Bearer tokens) for server-to-server use.
+  - **JWT access tokens** for user sessions.
+- FR-1.4: Users can delete their own account along with their links and associated analytics.
+
+### FR-2: Link Creation
+- FR-2.1: `POST /links` creates a link with a destination URL.
+- FR-2.2: Short code is **auto-generated by default** (alphanumeric, `[a-zA-Z0-9]`).
+- FR-2.3: Users may supply a **custom slug**, 3–50 characters, alphanumeric only.
+- FR-2.4: **Collision handling:** if a custom slug is taken, reject the request and suggest available alternatives.
+- FR-2.5: **Idempotency:** requests may include an `Idempotency-Key` header; retries with the same key return the original result without creating duplicates.
+- FR-2.6: **Expiration:** links are **permanent by default**; the user may optionally set an expiration at creation (and per link updates — see Open Questions).
+- FR-2.7: **Abuse prevention:** link creation is protected by rate limiting and CAPTCHA.
+
+### FR-3: Link Management
+- FR-3.1: Authenticated users can list, retrieve, **edit the destination URL**, and **delete/disable** their own links.
+- FR-3.2: Users can only modify links they own.
+- FR-3.3: Single-resource operations only (no bulk endpoints in MVP).
+
+### FR-4: Redirects
+- FR-4.1: Active links respond with a fast **301/302 redirect**, no intermediate page.
+- FR-4.2: Expired links respond **`410 Gone`** with a JSON error body.
+- FR-4.3: Unknown or deleted links respond **`404 Not Found`** with a JSON error body.
+- FR-4.4: Redirect responses include aggregate click counting (no IP/PII stored).
+
+### FR-5: Analytics
+- FR-5.1: Link owners can read **total clicks**, **referrer breakdown**, and **country breakdown** for their links.
+- FR-5.2: **Privacy constraints:**
+  - Do **not** store visitor IP addresses or other personally identifiable visitor data.
+  - Store **aggregate click counts**.
+  - Do **not** retain individual click events beyond **30 days**.
+- FR-5.3: Users can delete their links and the associated analytics.
+
+### FR-6: QR Codes
+- FR-6.1: The API generates a QR code for any of the user's links.
+- FR-6.2: QR codes are downloadable as **PNG** and **SVG**.
+
+### FR-7: API Surface & Behavior
+- FR-7.1: Full REST API covering accounts, links, analytics, and QR codes.
+- FR-7.2: All error responses are JSON with a consistent error shape.
+- FR-7.3: All responses (including redirects, 404, 410) are machine-readable JSON where a body is returned; redirect status codes are used for active links.
+
+### FR-8: Rate Limiting
+- FR-8.1: Per-user rate limits applied (baseline: **100 requests/minute** per user/key).
+- FR-8.2: Rate-limited requests return a standard `429 Too Many Requests` response with retry guidance.
+- *(Note: the product is free with no paid tiers; tiering above the baseline is deferred.)*
+
+### FR-9: Deployment & Platform
+- FR-9.1: Deployed as a **serverless** application.
+- FR-9.2: Data stored in the existing **PostgreSQL database on AWS RDS**.
+
+### FR-10: Observability
+- FR-10.1: **Structured JSON logging** for all requests.
+- FR-10.2: **Health check endpoint(s)**.
+- FR-10.3: **Metrics** for request rates, response latency, error rates, and URL redirects.
+- FR-10.4: **Distributed tracing** via OpenTelemetry where useful.
+- FR-10.5: **Basic error alerting**.
+- FR-10.6: Monitoring must remain **lightweight and suitable for local development**; the Architect selects the specific tools.
+
+## 7. Non-Functional Product Requirements
+
+| Category | Requirement |
+|---|---|
+| **Performance** | Redirects must be fast (immediate 301/302; no interstitial). Target latency budgets to be defined by the Architect. |
+| **Scale** | Must support 10,000+ users and 1,000,000+ links. |
+| **Availability** | High availability for the redirect path; health checks exposed. |
+| **Privacy** | No visitor IPs or PII stored; aggregate counts only; individual click events purged within 30 days. |
+| **Security** | Rate limiting + CAPTCHA on creation; email verification before link creation; per-user ownership checks; API key/JWT auth. |
+| **Data lifecycle** | Users can delete their links and associated analytics at any time. |
+| **Portability** | Serverless-friendly; works against existing AWS RDS PostgreSQL; lightweight enough for local development. |
+| **Observability** | JSON logs, metrics, health checks, OpenTelemetry tracing, basic alerting (FR-10). |
+| **Extensibility** | Single shared domain now; custom domains designed for in a later version. |
+
+## 8. MVP Scope
+
+### In Scope
+- Email/password + Google/GitHub social login, email verification.
+- Dual auth: API keys + JWT.
+- Link create (auto + custom slug), read, edit destination, delete/disable.
+- Collision rejection with slug suggestions.
+- Idempotency-Key support.
+- Optional expiration; permanent by default.
+- Redirects: 301/302 active, 410 expired, 404 unknown/deleted (JSON bodies).
+- Basic analytics: total clicks, referrers, countries; 30-day event retention; no IP/PII.
+- QR code generation (PNG + SVG).
+- Per-user rate limiting (100 req/min) + CAPTCHA on create.
+- Single-resource API only.
+- Serverless deployment, PostgreSQL (AWS RDS), JSON logging, health checks, metrics, OpenTelemetry tracing, basic alerting.
+
+### Out of Scope (v2+)
+- Frontend / any UI.
+- Custom or branded domains; subdomains per user.
+- Teams, roles, SSO/SAML.
+- Monetization / paid tiers.
+- Bulk operations.
+- Webhooks / event streaming.
+- Interstitial redirect pages.
+- GDPR/CCPA compliance workflows (export/erasure request tooling).
+- DMCA/takedown tooling.
+- Link claiming/reclaiming of expired or deleted slugs.
+
+## 9. Acceptance Criteria
+
+1. **Signup & verification:** A user can register via email/password or Google/GitHub; an unverified user attempting to create a link receives an error; after email verification, link creation succeeds.
+2. **Create link:** An authenticated user calling `POST /links` with only a destination URL receives a short URL with an auto-generated alphanumeric short code.
+3. **Custom slug:** A user supplying `my-campaign` (3–50 alphanumeric chars) gets that slug; supplying an existing slug returns a rejection with suggested alternatives.
+4. **Idempotency:** Replaying a `POST /links` with the same `Idempotency-Key` returns the original link and creates no duplicate.
+5. **Redirect:** `GET /{shortCode}` for an active link responds 301/302 to the destination with no intermediate page.
+6. **Expired link:** An expired link responds `410 Gone` with a JSON error.
+7. **Unknown/deleted link:** Responds `404 Not Found` with a JSON error.
+8. **Edit & delete:** A link owner can update the destination URL and delete/disable the link; a non-owner receives an authorization error.
+9. **Analytics:** A link owner can retrieve total clicks, referrer breakdown, and country breakdown; no visitor IP or PII is stored; individual click events are not retained beyond 30 days.
+10. **QR codes:** A link owner can download a QR code for their link in both PNG and SVG formats.
+11. **Rate limiting:** Exceeding 100 requests/minute for a user returns `429` with retry guidance; link creation is CAPTCHA-protected.
+12. **Observability:** Health check endpoint responds; structured JSON logs are emitted; metrics cover request rate, latency, error rate, and redirects; tracing works in local development.
+13. **Account deletion:** A user can delete their account, which removes their links and associated analytics.
+
+## 10. Open Questions and Assumptions
+
+### Open Questions
+| # | Question | Impact |
+|---|---|---|
+| Q1 | **Slug reclamation:** Collisions are rejected first-come-first-served, but should slugs from deleted or expired links ever become reclaimable after a grace period? | Affects slug allocation rules |
+| Q2 | **Expiration editing:** Can expiration be changed after link creation (FR-2.6 says "per link updates — see Open Questions")? | Affects link update API |
+| Q3 | **Rate-limit tiers:** Product is free with no paid plans — is the 100 req/min baseline universal, or are there usage-based bumps (e.g., verified/API-heavy users)? | Affects FR-8 |
+| Q4 | **Country detection method:** Country breakdown without storing IPs implies coarse geo-resolution (e.g., truncated/derived-at-request-time data). What is the acceptable approach? | Affects analytics design & privacy |
+| Q5 | **CAPTCHA provider & trigger:** Which CAPTCHA, and is it required on every create or only when suspicious? | Affects FR-2.7 |
+| Q6 | **Social login scope:** Is Google + GitHub sufficient for MVP, or is more needed? | Affects FR-1.1 |
+| Q7 | **QR code payload:** QR encodes the short URL — confirm, and is any styling/options needed beyond format? | Affects FR-6 |
+| Q8 | **Redirect type (301 vs 302):** Permanent (301) or temporary (302) by default? Matters for browser caching and analytics accuracy. | Affects FR-4.1 |
+| Q9 | **Numeric click counts precision:** Aggregate counts at 1M+ links scale — any cap or rollup strategy needed for very high-traffic links? | Affects FR-5 |
+
+### Assumptions
+| # | Assumption |
+|---|---|
+| A1 | The existing PostgreSQL instance on AWS RDS is provisioned with sufficient capacity for 1M+ links and will be managed externally (backups, patching). |
+| A2 | Serverless platform choice (e.g., AWS Lambda vs. Cloud Run) is left to the Architect. |
+| A3 | "Basic analytics: referrers and countries" means per-link aggregates (counts grouped by referrer host and country), not per-click event logs. |
+| A4 | All users are on the free product; rate limits are uniform at 100 req/min unless Q3 changes this. |
+| A5 | Email verification uses standard double opt-in; no email deliverability SLA is specified. |
+| A6 | CAPTCHA and rate limiting apply to unauthenticated/anonymous create attempts as well, if anonymous creation is allowed — **note:** anonymous link creation is not currently specified; see Q10 below. |
+| A7 | "Delete account → delete links and analytics" is immediate and irreversible in MVP. |
+
+### Additional question surfaced during writing
+| # | Question |
+|---|---|
+| Q10 | **Anonymous link creation:** The journeys only cover authenticated creation. Can unauthenticated users shorten links (like bit.ly's homepage), or is an account strictly required? CAPTCHA-on-create (FR-2.7) hints at anonymous creation. |
+
+---
+
+*This PRD is a draft. It requires explicit human approval before any implementation begins.*
