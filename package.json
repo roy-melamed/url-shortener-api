@@ -18,7 +18,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "migrate": "node-pg-migrate up --migrations-dir migrations"
+    "migrate": "node-pg-migrate up --migrations-dir migrations --migration-file-language ts",
+    "migrate:down": "node-pg-migrate down --migrations-dir migrations --migration-file-language ts",
+    "migrate:status": "node-pg-migrate status --migrations-dir migrations --migration-file-language ts"
   },
   "dependencies": {
     "aws-lambda-fastify": "2.2.0",
