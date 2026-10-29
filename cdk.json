@@ -1,0 +1,8 @@
+{
+  "app": "node --experimental-strip-types --disable-warning=ExperimentalWarning infra/bin/app.ts",
+  "watch": {
+    "include": ["infra/**/*.ts", "src/**/*.ts"],
+    "exclude": ["README.md", "**/*.d.ts", "node_modules", "dist", "coverage", "cdk.out"]
+  },
+  "context": {}
+}

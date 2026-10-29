@@ -14,7 +14,13 @@ const PORTABILITY_SEAM_MESSAGE =
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', '.opencode/**'],
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'cdk.out/**',
+      'node_modules/**',
+      '.opencode/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
