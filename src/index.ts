@@ -8,8 +8,8 @@
  * deploy time. Graceful shutdown closes the server on SIGINT/SIGTERM.
  */
 import 'dotenv/config';
-import { loadConfig } from './platform/config.js';
-import { buildApp } from './app.js';
+import { loadConfig } from './platform/config.ts';
+import { buildApp } from './app.ts';
 
 const config = loadConfig();
 const app = buildApp({ config });

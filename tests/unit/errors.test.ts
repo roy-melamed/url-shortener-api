@@ -4,7 +4,7 @@ import {
   buildErrorEnvelope,
   codeForStatus,
   ERROR_CODES,
-} from '../../src/platform/errors.js';
+} from '../../src/platform/errors.ts';
 
 describe('error envelope (FR-7.2, design §5.1)', () => {
   it('builds the consistent error shape with requestId', () => {

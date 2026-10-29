@@ -15,8 +15,8 @@
  * imported (portability seam, design §3.9).
  */
 import awsLambdaFastify from 'aws-lambda-fastify';
-import { loadConfig } from './platform/config.js';
-import { buildApp } from './app.js';
+import { loadConfig } from './platform/config.ts';
+import { buildApp } from './app.ts';
 
 const config = loadConfig();
 const app = buildApp({ config });

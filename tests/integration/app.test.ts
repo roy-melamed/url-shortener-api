@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import supertest from 'supertest';
-import { loadConfig } from '../../src/platform/config.js';
-import { createLogger } from '../../src/platform/logger.js';
-import { buildApp } from '../../src/app.js';
-import { AppError } from '../../src/platform/errors.js';
+import { loadConfig } from '../../src/platform/config.ts';
+import { createLogger } from '../../src/platform/logger.ts';
+import { buildApp } from '../../src/app.ts';
+import { AppError } from '../../src/platform/errors.ts';
 import type { FastifyInstance } from 'fastify';
 
 /**

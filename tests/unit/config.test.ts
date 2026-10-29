@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from '../../src/platform/config.js';
+import { ConfigError, loadConfig } from '../../src/platform/config.ts';
 
 const baseEnv = { DATABASE_URL: 'postgres://user:pass@localhost:5432/urlshortener' };
 

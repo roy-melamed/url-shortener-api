@@ -9,7 +9,7 @@
  * line. Platform-only (no cloud SDK imports, design §3.9).
  */
 import { pino, type Logger, type DestinationStream } from 'pino';
-import type { AppConfig } from './config.js';
+import type { AppConfig } from './config.ts';
 
 export type AppLogger = Logger;
 

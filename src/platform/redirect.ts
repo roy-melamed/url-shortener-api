@@ -11,7 +11,7 @@
  * GeoIP, click emission — design §3.2) belongs to the redirect/app tickets;
  * this foundation-level helper will be absorbed by that implementation.
  */
-import type { AppConfig } from './config.js';
+import type { AppConfig } from './config.ts';
 
 export interface RedirectResponse {
   statusCode: 301 | 302;

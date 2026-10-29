@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import supertest from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/platform/config.js';
-import { redirectResponse } from '../../src/platform/redirect.js';
+import { loadConfig } from '../../src/platform/config.ts';
+import { redirectResponse } from '../../src/platform/redirect.ts';
 
 /**
  * URL-18 acceptance: "Default config yields 302 + Cache-Control: no-store on a

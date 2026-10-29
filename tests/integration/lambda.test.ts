@@ -11,7 +11,7 @@ process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'silent';
 process.env.DATABASE_URL = 'postgres://user:pass@localhost:5432/urlshortener';
 
-const { handler } = await import('../../src/lambda.js');
+const { handler } = await import('../../src/lambda.ts');
 
 function v2Event(path: string, requestId: string) {
   return {

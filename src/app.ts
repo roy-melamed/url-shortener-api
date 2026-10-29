@@ -18,19 +18,20 @@
  * (portability seam, design §3.9). No cloud SDK is imported here.
  */
 import Fastify, {
+  LogController,
   type FastifyInstance,
   type FastifyError,
   type FastifyBaseLogger,
 } from 'fastify';
-import type { AppConfig } from './platform/config.js';
-import { createLogger, type AppLogger } from './platform/logger.js';
-import { ulid } from './platform/ulid.js';
+import type { AppConfig } from './platform/config.ts';
+import { createLogger, type AppLogger } from './platform/logger.ts';
+import { ulid } from './platform/ulid.ts';
 import {
   AppError,
   buildErrorEnvelope,
   codeForStatus,
   type ErrorDetail,
-} from './platform/errors.js';
+} from './platform/errors.ts';
 
 export interface BuildAppOptions {
   config: AppConfig;
@@ -98,11 +99,17 @@ export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
   // Typed as FastifyBaseLogger so the instance keeps Fastify's default logger
   // generic (the pino AppLogger is structurally assignable to it).
   const baseLogger: FastifyBaseLogger = logger ?? createLogger(config);
+  // Fastify 5: configure request-logging via a LogController instance instead of
+  // the deprecated top-level `disableRequestLogging` (FSTDEP023). Binding the
+  // request id under the `requestId` label (design §8.2) gives ONE canonical
+  // correlation field — Fastify's default `reqId` label is not emitted.
+  const logController = new LogController({
+    disableRequestLogging: true, // we emit a single onResponse line (§8.2)
+    requestIdLogLabel: 'requestId',
+  });
   const app = Fastify({
     loggerInstance: baseLogger,
-    // We emit exactly one structured line per request in `onResponse`
-    // (design §8.2) rather than Fastify's default req/res pair.
-    disableRequestLogging: true,
+    logController,
     // Honor an API-Gateway/caller-provided correlation id when present; a
     // ULID is generated otherwise. Client-supplied ids are safe as correlation
     // ids because pino JSON-encodes values (no log injection — design §8.2).
@@ -110,11 +117,11 @@ export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
     genReqId: () => ulid(),
   });
 
-  // ONE structured JSON log line per request (FR-10.1, design §8.2).
+  // ONE structured JSON log line per request (FR-10.1, design §8.2). The
+  // `requestId` field is already bound on `request.log` via requestIdLogLabel.
   app.addHook('onResponse', async (request, reply) => {
     request.log.info(
       {
-        requestId: request.id,
         route: request.routeOptions?.url ?? 'unmatched',
         method: request.method,
         status: reply.statusCode,
@@ -128,7 +135,7 @@ export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
   app.setErrorHandler((error, request, reply) => {
     const mapped = mapError(error);
     if (mapped.statusCode >= 500) {
-      request.log.error({ err: error, requestId: request.id }, 'unhandled error');
+      request.log.error({ err: error }, 'unhandled error');
     }
     reply
       .status(mapped.statusCode)

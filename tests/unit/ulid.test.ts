@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ulid } from '../../src/platform/ulid.js';
+import { ulid } from '../../src/platform/ulid.ts';
 
 describe('ulid (requestId fallback, design §5.1/§8.2)', () => {
   it('generates a 26-character Crockford base32 id', () => {
