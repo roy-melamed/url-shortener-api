@@ -1,0 +1,10 @@
+# Local GeoIP database file location (AD-2 Option B, design §3.2/§3.9).
+#
+# The transient GeoIP resolver reads a database file from disk in-process:
+#   - local dev: this directory, pointed to by GEO_DB_PATH in `.env`
+#     (e.g. GEO_DB_PATH=./data/geo/geo.db);
+#   - Lambda: the file ships via a layer / bundled asset.
+#
+# The concrete vendor + database file is an open decision (design §10.9) and
+# is out of scope for URL-7 — this directory only reserves the local path so
+# the dev environment has a stable location for the file.

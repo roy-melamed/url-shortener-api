@@ -1,0 +1,52 @@
+# Local development stack — URL-7 (scaffolding).
+#
+# Provides the docker-compose services the app runs against locally
+# (FR-9.3 / NFR-7, design §1.2): PostgreSQL, Jaeger (OTLP), MailHog (SMTP).
+# Credentials below are LOCAL DEV PLACEHOLDERS that match `.env.example` —
+# they are not secrets and are never used in the cloud (deployed values come
+# from Secrets Manager / RDS, design §6.2). No real endpoint or secret is
+# committed.
+#
+# Usage:
+#   docker compose up -d      # start postgres + jaeger + mailhog
+#   cp .env.example .env      # then `npm run dev`
+#
+# The local GeoIP database file (AD-2 Option B, design §3.2/§3.9) is read
+# in-process from disk; its location is reserved under ./data/geo and pointed
+# to by GEO_DB_PATH in `.env` (see data/geo/.gitkeep).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: urlshortener
+      POSTGRES_PASSWORD: urlshortener
+      POSTGRES_DB: urlshortener
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U urlshortener -d urlshortener']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  jaeger:
+    # All-in-one collector with OTLP enabled — local traces (design §8.1/§8.4).
+    image: jaegertracing/all-in-one:1.57
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    ports:
+      - '4318:4318' # OTLP HTTP (matches OTLP_ENDPOINT in .env.example)
+      - '16686:16686' # Jaeger UI
+
+  mailhog:
+    # Local SMTP for double opt-in emails in dev (design §3.8).
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - '1025:1025' # SMTP (matches SMTP_HOST/SMTP_PORT in .env.example)
+      - '8025:8025' # Web UI
+
+volumes:
+  pgdata:
