@@ -19,10 +19,14 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "migrate": "node-pg-migrate up --migrations-dir migrations --migration-file-language ts",
-    "migrate:down": "node-pg-migrate down --migrations-dir migrations --migration-file-language ts"
+    "migrate:down": "node-pg-migrate down --migrations-dir migrations --migration-file-language ts",
+    "cdk:synth": "cdk synth --quiet",
+    "job:maintenance": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/run-maintenance-job.ts"
   },
   "dependencies": {
+    "aws-cdk-lib": "2.275.0",
     "aws-lambda-fastify": "2.2.0",
+    "constructs": "10.8.1",
     "dotenv": "18.0.9",
     "fastify": "5.12.7",
     "node-pg-migrate": "9.0.0",
@@ -41,6 +45,8 @@
     "@types/qrcode": "1.5.6",
     "@types/supertest": "7.2.1",
     "@vitest/coverage-v8": "5.0.5",
+    "aws-cdk": "2.1146.1",
+    "esbuild": "0.28.2",
     "eslint": "10.13.0",
     "prettier": "3.9.10",
     "supertest": "7.3.1",
