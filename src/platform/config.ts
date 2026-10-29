@@ -53,6 +53,10 @@ const envSchema = z.object({
   // Observability (FR-10): local OTLP → Jaeger; deployed → ADOT → CloudWatch.
   OTLP_ENDPOINT: z.string().default(''),
 
+  // GeoIP database file (AD-2 Option B, design §3.2/§3.9): local path to the
+  // transient GeoIP database; vendor/license open (§10.9), never a secret.
+  GEO_DB_PATH: z.string().default(''),
+
   // Email (FR-1.2, design §3.8): local = MailHog SMTP; deployed = AWS SES.
   SMTP_HOST: z.string().default(''),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
@@ -87,6 +91,7 @@ export interface AppConfig {
   secrets: { dbArn: string; jwtArn: string; oauthArn: string; captchaArn: string };
   redirectStatus: 301 | 302;
   otlpEndpoint: string;
+  geoDbPath: string;
   smtp: { host: string; port: number; user: string; password: string };
   captchaMode: string;
   oauth: {
@@ -158,6 +163,7 @@ export function loadConfig(
     },
     redirectStatus: raw.REDIRECT_STATUS,
     otlpEndpoint: raw.OTLP_ENDPOINT,
+    geoDbPath: raw.GEO_DB_PATH,
     smtp: {
       host: raw.SMTP_HOST,
       port: raw.SMTP_PORT,

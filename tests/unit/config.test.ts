@@ -25,6 +25,13 @@ describe('loadConfig', () => {
     expect(() => loadConfig({})).toThrow(/DATABASE_URL/);
   });
 
+  it('exposes a GEO_DB_PATH contract defaulting to empty (URL-7 compose)', () => {
+    expect(loadConfig(baseEnv).geoDbPath).toBe('');
+    expect(loadConfig({ ...baseEnv, GEO_DB_PATH: './data/geo/geo.db' }).geoDbPath).toBe(
+      './data/geo/geo.db',
+    );
+  });
+
   it('rejects REDIRECT_STATUS values other than 301/302 outright', () => {
     expect(() => loadConfig({ ...baseEnv, REDIRECT_STATUS: '200' })).toThrow(ConfigError);
   });
