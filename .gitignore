@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# CDK cloud assembly (synthesis output — never committed)
+cdk.out/
+
 # Coverage reports
 coverage/
 
