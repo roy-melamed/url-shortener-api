@@ -840,13 +840,24 @@ Related still-open items unchanged: §10.6 (CAPTCHA vendor), §10.7 (GeoIP vendo
 
 > Owner preference (AD-17): **persistent OCI NSG + IPv4/IPv6 DOCKER-USER filtering** (Option A path). The owner has asked for a prepared/verified plan before applying it. This section documents that plan; no rule, network, container, or firewall change is performed.
 
-**Current facts:**
+**Current facts (read-only observations):**
 - `url8-pg` is running on Docker's default `bridge` network.
 - It has a Docker HostPort binding to `0.0.0.0` and `[::]` on port 5432 via docker-proxy.
 - `DOCKER-USER` is empty; Docker's `FORWARD`/`DOCKER` rules permit the DNATed 5432 path.
 - Host `INPUT` chain has a final reject but does **not** govern forwarded Docker traffic.
-- OCI NSG/security-list rules are unverified.
+- Host primary NIC is `enp0s6` with IPv4 `10.0.0.87/24` and route `10.0.0.0/24`.
+- The host currently has **no global IPv6 address** (only link-local), even though `url8-pg` is published on `[::]`.
+- Docker default `bridge` network CIDR is `172.17.0.0/16`.
+- Stale `ryan-url8_default` network CIDR is `172.18.0.0/16` and is link-down; it must not be reused.
+- Docker `DefaultAddressPools` is unset; new user-defined bridge networks default to the next available `/16` unless explicitly created with a custom subnet.
+- OCI NSG/security-list rules and any VCN/peered routes remain unverified.
 - The container, its image, its published port, and its volume are **not modified** by this plan.
+
+**Candidate DB bridge subnet (proposed for review, not created):**
+- Proposed `urlshortener_db` subnet: **`172.19.0.0/16`**.
+- This does not overlap the observed host route (`10.0.0.0/24`), Docker default bridge (`172.17.0.0/16`), or the stale `ryan-url8_default` network (`172.18.0.0/16`).
+- Final subnet selection and any `urlshortener_app` subnet must be conditional on checking **all OCI VCN and peered routes** before any network is created.
+- The candidate subnet is a planning value only; no Docker network, `iptables`/`nftables` rule, or NSG rule has been applied.
 
 **Plan steps (to be reviewed and approved by owner before execution):**
 
@@ -856,7 +867,7 @@ Related still-open items unchanged: §10.6 (CAPTCHA vendor), §10.7 (GeoIP vendo
    - Verify no other host process or container binds 5432 (note: `ryan-url8-postgres-1` exists and must not be started).
 
 2. **Define target network and allowed path:**
-   - Create `urlshortener_db` as a user-defined bridge (DB-only).
+   - Create `urlshortener_db` as a user-defined bridge (DB-only), using the candidate `172.19.0.0/16` subnet **only after** verifying it does not overlap any OCI VCN or peered route.
    - `url8-pg` will be connected to `urlshortener_db` (and optionally disconnected from default `bridge` in a later, separately approved step).
    - The only allowed 5432 ingress paths are:
      - Loopback (`127.0.0.1`/`::1`) for admin/probes.
@@ -870,6 +881,7 @@ Related still-open items unchanged: §10.6 (CAPTCHA vendor), §10.7 (GeoIP vendo
 
 4. **OCI NSG/security-list rules:**
    - Add ingress rules denying TCP 5432 from `0.0.0.0/0` and `::/0` on the VNIC/security list.
+   - **IPv6 note:** even though this host currently has no global IPv6 address, `url8-pg` is published on `[::]`, so external IPv6 ingress to 5432 must still be explicitly denied and verified. A future global IPv6 assignment would otherwise expose the port.
    - Allow 5432 only from an explicit admin/source CIDR if remote admin access is required; default to deny.
 
 5. **Rollback:**
@@ -878,7 +890,7 @@ Related still-open items unchanged: §10.6 (CAPTCHA vendor), §10.7 (GeoIP vendo
 
 6. **Verification (external):**
    - From another host on IPv4: `nmap -p5432 <vm-ipv4>` → `filtered` or `closed`.
-   - From another host on IPv6: `nmap -6 -p5432 <vm-ipv6>` → `filtered` or `closed`.
+   - From another host on IPv6: `nmap -6 -p5432 <vm-ipv6>` → `filtered` or `closed` (required even though the host currently has no global IPv6 address, because `url8-pg` is published on `[::]` and an IPv6 address could be assigned later).
    - From app container on `urlshortener_db`: `pg_isready -h url8-pg -p 5432` succeeds.
    - **No claim of "private-only" is made until these gates pass.**
 
