@@ -3,12 +3,12 @@
 | Field | Value |
 |---|---|
 | **Artifact** | `specs/url-shortener-api/requirements.md` |
-| **Status** | **Reconciled** with `design.md` §11 (AD-1…AD-15) — residual open flags only (§8.5) |
-| **Date** | 2026-10-11 (created) · reconciled 2026-10-13 vs design.md §11 (human decisions 2026-10-12) |
+| **Status** | **Reconciled** with `design.md` §11 (AD-1…AD-15) — residual open flags only (§8.5) · platform revised 2026-11-02 per **AD-16** (human-approved Oracle Cloud migration; A1/A2 superseded, preserved in §8.0) |
+| **Date** | 2026-10-11 (created) · reconciled 2026-10-13 vs design.md §11 (human decisions 2026-10-12) · **revised 2026-11-02** (deployment platform: Oracle Cloud VM, human decision AD-16) |
 | **Author** | Jim Halpert — Specification Agent |
 | **Source of truth** | `/home/roy/projects/ai-squad/PRD.md` — *Product Requirements Document: URL Shortener API*, Status: **Approved**, dated 2026-10-08 (immutable; not modified by this artifact) |
 | **Next hand-off** | Architect (Dwight) → `specs/url-shortener-api/design.md` |
-| **Blocked on** | No requirement blocked: Q1–Q4, Q6–Q10, A1–A7, AM-1/AM-3/AM-4/AM-5 all resolved via design.md §11. **Still open (§8.5):** Q5 CAPTCHA provider vendor · GeoIP DB vendor/license · FR-3.1 delete/disable wording · AM-2 · AM-1/AC-03 charset conflict · cache-immediacy windows (design escalation E1) |
+| **Blocked on** | No requirement blocked: Q1–Q4, Q6–Q10, A1–A7, AM-1/AM-3/AM-4/AM-5 all resolved via design.md §11; **AD-16 (2026-11-02) resolved the platform (Oracle Cloud VM / Docker Compose; A1·A2 superseded, AWS `database-1` untouched)**. **Still open (§8.5):** Q5 CAPTCHA provider vendor · GeoIP DB vendor/license · FR-3.1 delete/disable wording · AM-2 · AM-1/AC-03 charset conflict · cache-immediacy windows (design escalation E1) · **AD-16 follow-ons #7–#10** (backup cadence/retention/RPO/RTO · click-event transport · TLS posture · observability tooling re-selection) |
 
 ---
 
@@ -39,7 +39,8 @@ This document translates the approved PRD into clear, complete, testable softwar
 - QR code generation in PNG and SVG.
 - Per-user rate limiting (baseline 100 requests/minute) plus CAPTCHA on link creation.
 - Single-resource endpoints only (no bulk operations).
-- Serverless deployment, PostgreSQL on existing AWS RDS, structured JSON logging, health checks, metrics, OpenTelemetry tracing, basic alerting.
+- Serverless deployment, PostgreSQL on existing AWS RDS, structured JSON logging, health checks, metrics, OpenTelemetry tracing, basic alerting. *(Superseded 2026-11-02 by AD-16 — see §4 Platform and §8.0.)*
+- **Given AD-16 (human, 2026-11-02):** containerized deployment via **Docker Compose on the confirmed Oracle Cloud Ubuntu ARM64 VM** (single-VM personal MVP), using the **existing PostgreSQL 16 container `url8-pg`** with its persistent Docker volume, private-network-only DB connectivity, restart policies and health checks, persistent storage, and automated backups; structured JSON logging, health checks, metrics, OpenTelemetry tracing, basic alerting.
 
 ### 3.2 Out of scope (v2+) — per PRD §4 Non-Goals and §8
 
@@ -53,8 +54,9 @@ This document translates the approved PRD into clear, complete, testable softwar
 - GDPR/CCPA compliance workflows (export/erasure request tooling).
 - DMCA/takedown tooling.
 - Link claiming/reclaiming of expired or deleted slugs (first-come-first-served in MVP — Q1 resolved: never released, design §11 AD-5).
-- CDN / edge caching / CloudFront configuration — no content-delivery network in MVP; redirects are served directly from the serverless application (edge/CDN caching may be considered in a later version). *(Human scope ruling; enforced by design §11 AD-1/AD-2/AD-7.)*
-- Architecture decisions (frameworks, infrastructure specifics beyond serverless + PostgreSQL) — left to the Architect.
+- CDN / edge caching / CloudFront configuration — no content-delivery network in MVP; redirects are served directly from the serverless application (edge/CDN caching may be considered in a later version). *(Human scope ruling; enforced by design §11 AD-1/AD-2/AD-7. Since AD-16 the redirect origin is the Oracle VM; the "no CDN/edge layer in front" exclusion itself is unchanged.)*
+- **AWS RDS and `database-1` disposition/migration (per AD-16, 2026-11-02)** — the existing AWS RDS PostgreSQL instance (`database-1`) remains **untouched**: no data migration, no dependency changes, no new AWS resources, and no AWS resource or database deletion is authorized or in scope. Those are separate, still-unmade product decisions.
+- Architecture decisions (frameworks, infrastructure specifics beyond serverless + PostgreSQL) — left to the Architect. *(Since AD-16 (2026-11-02), the confirmed deployment platform is Docker Compose on the Oracle Cloud VM + PostgreSQL; the "beyond the platform constraint" delegation itself is unchanged.)*
 
 ## 4. Cross-cutting constraints (summary)
 
@@ -66,7 +68,7 @@ This document translates the approved PRD into clear, complete, testable softwar
 | **QR codes** | Generated for the requesting user's own links; PNG and SVG output (FR-6). Payload = short URL, `?format=png|svg`, no styling options (design §11 AD-15 — Q7 resolved). |
 | **Rate limiting / abuse** | 100 requests/minute per user/key baseline — **uniform, no tiers in MVP** (design §11 AD-7 — Q3/A4 resolved); `429` + retry guidance (FR-8); anonymous redirect traffic not application-rate-limited (AM-4 closed by AD-7). CAPTCHA on creation (FR-2.7): mode `suspicious`, pluggable provider (design §11 AD-3) — **provider vendor still open [OPEN §8.5]**. |
 | **Observability** | Structured JSON logs for all requests, health checks, metrics (request rate, latency, error rate, redirects), OpenTelemetry tracing, basic error alerting; lightweight and local-dev friendly; tool choice belongs to the Architect (FR-10). |
-| **Platform** | Serverless deployment — AWS Lambda + API Gateway HTTP API confirmed (design §11 AD-12 — A2 confirmed); data in existing PostgreSQL on AWS RDS (FR-9), Multi-AZ confirmed (design §11 AD-11 — A1 confirmed). |
+| **Platform** | **Revised 2026-11-02 — AD-16 (human-approved):** containerized **Docker Compose** deployment on the confirmed **Oracle Cloud Ubuntu ARM64 VM** (single-VM personal MVP); data in the **existing PostgreSQL 16 container `url8-pg`** with a persistent Docker volume; **DB private-network-only, not publicly exposed**; restart policies and health checks; persistent storage; automated backups. **HA, Multi-AZ, and the former 99.9% redirect-path target are explicitly NOT required.** Async click aggregation is preserved unchanged. *(Supersedes the 2026-10-12 AWS decisions A1/AD-11 and A2/AD-12, preserved as superseded in §8.0.)* |
 
 ---
 
@@ -201,14 +203,14 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 
 | ID | Requirement |
 |---|---|
-| FR-9.1 | The application **shall** be deployed as a **serverless** application. |
-| FR-9.2 | Data **shall** be stored in the existing **PostgreSQL database on AWS RDS** (adequately provisioned, externally managed — confirmed: Multi-AZ; design §11 AD-11, A1 confirmed). |
-| FR-9.3 | The solution **shall** be lightweight enough to run against a local PostgreSQL for development (NFR-8). Serverless platform confirmed: **AWS Lambda + API Gateway HTTP API**, dual local-entrypoint portability retained (design §11 AD-12 — A2 confirmed). |
+| FR-9.1 | The application **shall** be deployed as a **containerized, long-running application via Docker Compose on the confirmed Oracle Cloud Ubuntu ARM64 VM** (single-VM personal MVP) — human decision **AD-16** (2026-11-02), superseding the former serverless platform (A2/AD-12, §8.0). Containers **shall** use configured **restart policies** and **health checks** so the service recovers automatically after container failure. Rediscovery note: the dual local-entrypoint pattern is retained for local development only; it is no longer a platform dependency. |
+| FR-9.2 | Data **shall** be stored in the **existing PostgreSQL 16 database in the `url8-pg` Docker container on the confirmed Oracle Cloud VM, backed by its persistent Docker volume** (human decision AD-16, 2026-11-02 — supersedes the former "existing PostgreSQL on AWS RDS", A1/AD-11). The database **shall** be reachable only via the **private application-to-DB Docker network** and **shall not be publicly exposed**. Automated backups **shall** operate as an owner-confirmed operational condition; **cadence, retention, RPO, and RTO are open items pending human decision (§8.5 #7)** — none is specified here. **Persistent storage** for the volume is required. |
+| FR-9.3 | The solution **shall** be lightweight enough to run against a local PostgreSQL for development (NFR-8 as written; see NFR-7). Deployment platform revised (AD-16, 2026-11-02): **Docker Compose on the confirmed Oracle Cloud VM**, with committed configuration free of endpoint/credential literals (**no committed secrets**). The dual local-entrypoint portability pattern is retained for local development. |
 
 **Acceptance criteria (EARS):**
 
-- **AC-FR-9.1:** The service shall run on a serverless platform with no long-lived server dependency.
-- **AC-FR-9.2:** All persistent data (accounts, links, aggregates) shall reside in the AWS RDS PostgreSQL instance.
+- **AC-FR-9.1:** While the Oracle VM is running, the service shall operate under Docker Compose as long-running containers with (a) configured restart-on-exit behavior, such that a failed (exited) container restarts automatically, and (b) an observable health-check status (per FR-10.2), such that container health state is monitorable/observable. **Health-check failure alone shall not be claimed to trigger an automatic restart** (Docker Compose restart policies act on exited processes, not on `unhealthy` status — operator/remediation behavior on a persistently unhealthy container is a separate design decision). No serverless platform dependency exists.
+- **AC-FR-9.2:** All persistent data (accounts, links, aggregates) shall reside in the PostgreSQL 16 persistent-volume store of the `url8-pg` container on the Oracle VM; while the DB container is connected solely over the private application-to-DB Docker network, no public exposure of the database shall exist; no database endpoint or credential literal shall appear in committed code or config.
 - **AC-FR-9.3:** A developer shall be able to run the application locally against a local PostgreSQL instance.
 
 ### FR-10: Observability
@@ -238,11 +240,11 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 |---|---|---|
 | NFR-1 | Performance | Redirects must be fast: immediate 301/302, no interstitial. Latency budgets to be **defined by the Architect**. |
 | NFR-2 | Scale | Must support **10,000+ users** and **1,000,000+ links**. |
-| NFR-3 | Availability | High availability for the redirect path; health checks exposed. |
+| NFR-3 | Availability | **Revised 2026-11-02 (AD-16):** single-VM personal MVP on the confirmed Oracle Cloud VM. High availability and Multi-AZ are **explicitly not required**, and the former human-confirmed **99.9%** monthly redirect-path target is **withdrawn with the superseded AWS basis (A1/AD-11)**. Health checks remain exposed (FR-10.2). |
 | NFR-4 | Privacy | No visitor IPs or PII stored; aggregate counts only; individual click events purged within **30 days**. |
 | NFR-5 | Security | Rate limiting + CAPTCHA on creation; email verification before link creation; per-user ownership checks; API key/JWT auth. |
 | NFR-6 | Data lifecycle | Users can delete their links and associated analytics at any time. |
-| NFR-7 | Portability | Serverless-friendly; works against existing AWS RDS PostgreSQL; lightweight enough for local development. |
+| NFR-7 | Portability | **Revised 2026-11-02 (AD-16):** runs against a **local PostgreSQL for development** and against the **containerized PostgreSQL 16 (`url8-pg`) on the confirmed Oracle Cloud VM** from a **single codebase**, with container-image parity between the local and deployed forms; application code retains **no cloud-vendor lock-in** (the local/exportable posture replaces the former "serverless-friendly; works against AWS RDS" wording). |
 | NFR-8 | Observability | JSON logs, metrics, health checks, OpenTelemetry tracing, basic alerting (see FR-10). |
 | NFR-9 | Extensibility | Single shared domain now; custom domains designed for in a later version (v2). |
 
@@ -250,7 +252,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 
 - **AC-NFR-1:** When a visitor requests an active short link, the system shall respond with a redirect and no interstitial page; latency targets shall be set by the Architect during design.
 - **AC-NFR-2:** The system shall operate at 10,000+ users and 1,000,000+ links without requirement changes.
-- **AC-NFR-3:** Health checks shall be exposed and the redirect path shall meet the availability goals set during design.
+- **AC-NFR-3:** Health checks shall be exposed. No high-availability, Multi-AZ, or 99.9% availability target applies to the single-VM personal MVP (human ruling AD-16, 2026-11-02 — the former 99.9% target was withdrawn with its AWS Multi-AZ basis). Automated backups shall operate per the owner-confirmed operational condition; **backup cadence/retention/RPO/RTO remain open (§8.5 #7) and no availability or recovery target is asserted here.**
 - **AC-NFR-4:** No data store shall contain visitor IP addresses or visitor PII; individual click events shall not survive beyond 30 days.
 - **AC-NFR-6:** A user shall be able to delete a link and its analytics at any time via the API.
 
@@ -280,6 +282,8 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 
 > **Open items stay visible until a human resolves them; resolved items are recorded here with their source.** Reconciled 2026-10-13 against `design.md` §11 (resolution log AD-1…AD-15, human decision-maker, 2026-10-12) and the PRD. Earlier `[PENDING Qn]` / `[PENDING A-n]` / `[AM-n]` markers have been converted to the resolutions below.
 >
+> **2026-11-02 revision (AD-16):** the human approved the deployment-platform migration to Docker Compose on the confirmed Oracle Cloud VM. **AD-16 is recorded below; it supersedes A1/AD-11 and A2/AD-12.** Those historical AWS decisions remain listed below, preserved as superseded — nothing was deleted.
+>
 > **Artifact-state note:** this file was found externally reverted to its 2026-10-11 original (mtime 2026-10-12 16:08), losing the 2026-10-11 §8.0 records for Q8/Q10/AM-1 and the §3.2 CDN scope bullet. Q8 and Q10 are re-recorded below (outcomes match design §11 AD-1/AD-4); the AM-1 outcome **does not** match design §11 AD-8 and is flagged in §8.5.
 
 ### 8.0 Resolved decisions (recorded — do not re-open without a new human ruling)
@@ -295,8 +299,8 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | Q8 | Redirect default | **302 temporary** + `Cache-Control: no-store`; Tier-2 CDN not included | design §11 AD-1; also first recorded in this artifact 2026-10-11 | FR-4.1, AC-05 |
 | Q9 | Click-count precision | Un-capped `BIGINT` totals; no downsampling or maintenance caps | design §11 AD-9 | FR-5.1/5.2, AC-09 |
 | Q10 | Anonymous link creation | **Account required** — authenticated `POST /links` only; anonymous → 401 | design §11 AD-4; also first recorded in this artifact 2026-10-11 | FR-1.2, FR-2.7, A6 |
-| A1 | RDS capacity/management | Confirmed — adequately provisioned, Multi-AZ | design §11 AD-11 | FR-9.2, NFR-2/3 |
-| A2 | Platform left to Architect | Confirmed — AWS Lambda + API Gateway HTTP API | design §11 AD-12 | FR-9.1, FR-9.3 |
+| A1 | RDS capacity/management | Confirmed — adequately provisioned, Multi-AZ · **SUPERSEDED 2026-11-02 by AD-16** (Oracle single-VM platform; HA/Multi-AZ and 99.9% not required) — record preserved | design §11 AD-11 | FR-9.2, NFR-2/3 |
+| A2 | Platform left to Architect | Confirmed — AWS Lambda + API Gateway HTTP API · **SUPERSEDED 2026-11-02 by AD-16** (Docker Compose on the confirmed Oracle Cloud VM) — record preserved | design §11 AD-12 | FR-9.1, FR-9.3 |
 | A3 | Analytics = per-link aggregates | Confirmed — aggregates, not per-click logs | design §11 AD-10 | FR-5.1, FR-5.2 |
 | A4 | Uniform 100 req/min | Confirmed | design §11 AD-7 | FR-8.1, FR-8.3 |
 | A5 | Double opt-in verification | Confirmed — standard double opt-in; no deliverability SLA | design §11 AD-14 | FR-1.2 |
@@ -306,6 +310,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | AM-3 | Aggregation vs. retention mechanics | Conservative reading: no raw events ever stored; daily buckets purged ≤ 30 days; all-time totals kept indefinitely | design §11 AD-10 | FR-5.1, FR-5.2, NFR-4 |
 | AM-4 | Anonymous/redirect rate limiting | Closed — application rate limiting scoped to `user:`/`apikey:` subjects only; anonymous redirect traffic not app-limited | design §11 AD-7 | FR-8.1, FR-4 |
 | AM-5 | Slug suggestions unspecified | HTTP 409 + **3 availability-checked alternatives** in the response body | design §11 AD-8 | FR-2.4 |
+| **AD-16** | **Deployment-platform migration (NEW)** | **Human-approved 2026-11-02:** personal MVP runs on **one confirmed Oracle Cloud Ubuntu ARM64 VM** via **Docker Compose**, reusing the **existing PostgreSQL 16 container `url8-pg`** and its **persistent Docker volume**. Security conditions: DB **private-only** (not publicly exposed, private app-to-DB Docker network), **restart policies**, **health checks**, **persistent storage**, **automated backups**, **no committed secrets**, **no new AWS resources**, **no deletion of AWS resources/databases**. **Availability:** HA, Multi-AZ, and the former **99.9%** redirect-path target are **explicitly NOT required**; NFR-3/AC-NFR-3 revised accordingly. Async click aggregation and all product acceptance criteria are preserved unchanged. **Out of scope, untouched:** the existing **AWS RDS `database-1`** — data/dependency review and any migration remain separate, unmade decisions. Open follow-ons: backup cadence/retention/RPO/RTO, click-event transport, TLS posture, observability tooling re-selection (**§8.5 #7–#10**). | **Michael (human), 2026-11-02** | FR-9.1–9.3, AC-FR-9.1/9.2, NFR-3, NFR-7, AC-NFR-3; supersedes A1/AD-11, A2/AD-12 |
 
 *(Q5 is only **partly** resolved — trigger mode via AD-3; the provider vendor remains open: §8.1 and §8.5.)*
 
@@ -319,7 +324,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 
 ### 8.2 Assumptions (A1–A7) — all confirmed
 
-All seven assumptions are **confirmed or moot** per design §11: A1 → AD-11, A2 → AD-12, A3 → AD-10, A4 → AD-7, A5 → AD-14, A6 → AD-4 (moot), A7 → AD-13 (full texts in PRD §10; decisions in §8.0). **None remain open.**
+All seven assumptions are **confirmed or moot** per design §11: A1 → AD-11, A2 → AD-12, A3 → AD-10, A4 → AD-7, A5 → AD-14, A6 → AD-4 (moot), A7 → AD-13 (full texts in PRD §10; decisions in §8.0). **Revision 2026-11-02:** A1 and A2 are now **superseded by AD-16** (Oracle platform — records preserved in §8.0); A3–A7 stand unchanged.
 
 ### 8.3 Requirement → open decision dependency index
 
@@ -332,6 +337,8 @@ All seven assumptions are **confirmed or moot** per design §11: A1 → AD-11, A
 | FR-3.1 / AC-FR-3.1 (delete vs disable wording) | design §10.4 / §11.2 (Michael) |
 | AC-FR-3.1 / AC-FR-2.1 (delete & create resolution immediacy) | design escalation **E1** (§13.3): 60s deleted-as-active, 30s negative-cache — open; edit-propagation ≤60s already AD-1-accepted, confirm as intended |
 | FR-2.3 / FR-2.4 / AC-03 (slug charset) | AD-8 applied — ⚠ conflict with the 2026-10-11 "allow hyphen" record: §8.5 |
+| FR-9.2 / AC-FR-9.2 (automated-backup leg, AD-16) | backup cadence / retention / RPO / RTO — **open §8.5 #7** (values only from the human; none specified here) |
+| FR-4.4 / FR-5 async aggregation (behavior preserved by AD-16) | **click-event transport on Oracle** (the AWS SQS mechanism no longer applies; no replacement technology is specified here) — **open §8.5 #8** |
 | (documentation only) | AM-2 — PRD header/footer status |
 
 ### 8.4 Additional ambiguities found during specification (NOT in PRD — do not resolve here; for Michael)
@@ -352,9 +359,13 @@ These were identified while writing this specification and are **not** part of t
 | 4 | **FR-3.1 "delete/disable" wording** — delete-only vs reversible disable (endpoint already satisfies AC-FR-3.1; a reversible disable would be additive) | design §10.4, §11.2 | FR-3.1, AC-FR-3.1, AC-08 | Human (Michael) |
 | 5 | **AM-2** — PRD header says "Approved", footer says "draft" | §8.4; design §11.2 | Documentation only | Human |
 | 6 | **E1 — Redirect cache immediacy windows (design escalation §13.3 — open; "AC semantics must be confirmed"):** three product-visible legs against this artifact's ACs: **(a)** a deleted/disabled link (incl. account-cascade deletes) may still 302 for up to **60s** — vs AC-FR-3.1 "subsequent redirect requests shall no longer resolve"; **(b)** a newly created slug may 404 for up to **30s** (negative cache) — vs AC-FR-2.1; **(c)** destination edits propagate in ≤60s — already accepted under AD-1/D-9, to "confirm as intended". Design offers Options A/B/C (accept bounded windows / strict immediacy / shared cache + invalidation); pending the human decision, design implements AD-1's 60s/30s TTLs (Option C must not be implemented without a new human decision). | design.md §13.3 (readiness review 2026-10-13) + §12 readiness row | AC-FR-3.1, AC-FR-2.1, FR-3.1, FR-2.1, FR-4.1 | Human (Michael) |
+| 7 | **Backup specifics (new, opened by AD-16):** automated backups are an owner-confirmed **operational condition** for the `url8-pg` persistent volume, but **cadence, retention, RPO, and RTO are not specified** anywhere and are **not invented here** — a human decision is required before any DR/restore claim or AC is written (restore-verification ownership likewise unassigned). | AD-16 · former A1 premise ("externally managed") superseded | FR-9.2, AC-FR-9.2, AC-NFR-3 | Human (Michael) |
+| 8 | **Click-event transport on Oracle (new):** async click aggregation (FR-4.4/FR-5) is **preserved unchanged as product behavior**, but the AWS SQS mechanism is no longer applicable; **no replacement queue/broker technology is chosen or inferred here** — requires an Architect proposal and human approval (redelivery/dedup semantics per §13-c1 must not be weakened as a side effect). | AD-16 (supersedes A2/AD-12's SQS leg; design §3.6/D-8) | FR-4.4, FR-5.2, AC-FR-4.4 | Human (Michael) — after Architect proposal |
+| 9 | **TLS posture to PostgreSQL on Oracle (new):** the former `sslmode=verify-full` rule targeted private-subnet RDS; the container-network trust model differs. **No TLS requirement is added or deleted here** — the network posture (private-only Docker network) is confirmed; whether an explicit in-network TLS requirement is wanted is a design decision for human approval. | AD-16 · design §6.3 | FR-9.2 (security leg), design-level only | Human (Michael) — after Architect proposal |
+| 10 | **Observability implementation on Oracle (unchanged requirement, changed tooling locus):** FR-10.1–10.6/NFR-8 stand **unchanged and tool-neutral**; the AWS implementations (ADOT→CloudWatch/X-Ray, CloudWatch Alarms→SNS, SES e-mail) no longer apply. FR-10.6 already reserves tool selection to the Architect ("lightweight and suitable for local development"); the AWS-specific replacements are therefore an **Architect selection to be brought back for human approval**, not new requirements. | AD-16 · FR-10.6 | FR-10.1–10.6 (verification paths only) | Architect → Human confirm |
 
 ---
 
 ## 9. Artifact boundaries
 
-This artifact contains requirements only. Per my role: no architecture, no `design.md`, no `tasks.md`, no implementation code, no tickets, no changes to the PRD. **Resolved (2026-10-13, sourced from design.md §11 AD-1…AD-15, human 2026-10-12):** Q1–Q4, Q6–Q10, A1–A7, AM-1, AM-3, AM-4, AM-5. **Still open and reported to Michael (§8.5):** the AM-1/AC-03 charset conflict, the Q5 CAPTCHA provider vendor, the GeoIP database vendor/license, the FR-3.1 delete/disable wording, AM-2, and the cache-immediacy windows escalation (design E1).
+This artifact contains requirements only. Per my role: no architecture, no `design.md`, no `tasks.md`, no implementation code, no tickets, no changes to the PRD. **Resolved (2026-10-13, sourced from design.md §11 AD-1…AD-15, human 2026-10-12):** Q1–Q4, Q6–Q10, A1–A7, AM-1, AM-3, AM-4, AM-5. **New human decision recorded 2026-11-02 (§8.0 AD-16):** deployment-platform migration to Docker Compose on the confirmed Oracle Cloud VM — A1/AD-11 and A2/AD-12 superseded (records preserved); the existing AWS RDS `database-1` remains untouched, with data/dependency review and any migration kept as separate, unmade decisions. **Still open and reported to Michael (§8.5):** the AM-1/AC-03 charset conflict, the Q5 CAPTCHA provider vendor, the GeoIP database vendor/license, the FR-3.1 delete/disable wording, AM-2, the cache-immediacy windows escalation (design E1), and the AD-16 follow-ons #7–#10 (backup cadence/retention/RPO/RTO, click-event transport, TLS posture, observability tooling re-selection).
