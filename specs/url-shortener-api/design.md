@@ -1023,28 +1023,40 @@ AWS Secrets Manager ARNs (`SECRET_ARN_*`) no longer apply to the Oracle runtime.
 - URL-20 (AWS CI/CD pipeline) stays **To Do / Agent Owner Developer**; its unimplemented AWS pipeline must not be called complete. It is not silently re-scoped to the Oracle path.
 - Any future decision to retire the AWS path is a separate, explicit human approval.
 
-### 14.11 Proposed Oracle Compose runtime scope — URL-27 (proposal only; no ticket created)
+### 14.11 Oracle scope alignment — URL-27 created as backup-only task; remaining runtime/network/CI/CD work stays proposed
 
-> **Jira issue URL-27 is proposed, not created, by this design update.** A live read-only Jira search confirmed URL-27 does not exist. No Jira issue is created, edited, or transitioned. URL-19 (AWS CDK) stays in **Evidence Review / Agent Owner Human** and URL-20 (AWS CI/CD pipeline) stays **To Do / Agent Owner Developer**.
+> **Jira Task URL-27 has been created** (Michael, 2026-11-03) and is scoped to Oracle PostgreSQL backup automation only. No Jira issue is created, edited, or transitioned by this design update. URL-19 (AWS CDK) stays in **Evidence Review / Agent Owner Human** and URL-20 (AWS CI/CD pipeline) stays **To Do / Agent Owner Developer**.
 
-**Proposed summary (URL-27):** Oracle Docker Compose runtime baseline — production-ready Compose definition, private container networking and `url8-pg` firewall remediation plan, Redis Streams async click-aggregation pipeline, daily encrypted Oracle Cloud Object Storage backups, Caddy HTTPS reverse proxy (domain-gated), self-hosted observability/alerting stack, and secrets management. **Excludes the GitHub Actions deployment workflow**, which is proposed as a separate dependent task.
+**Created task (URL-27):**
+- **Key:** URL-27
+- **Parent:** Epic URL-6
+- **Summary:** “Oracle PostgreSQL backup automation and disposable restore runbook”
+- **Assignee:** Roy Melamed
+- **Agent Owner:** Developer
+- **Status:** To Do
 
-**Proposed scope (URL-27):**
-- Add Oracle-path Docker Compose files (app, aggregator, scheduler, Redis Streams, Caddy, backup sidecar, observability stack) with no committed secrets.
-- Implement the approved `url8-pg` network/firewall remediation plan (§14.2.1) only after owner approval (AD-17 follow-on #5), including user-defined bridge networks and health/readiness wiring.
-- Implement Redis Streams producer/consumer wiring preserving `eventId` dedup, retry, DLQ, and zero per-click DB writes, with replay/redelivery horizon configured ≤48h (<7-day `click_event_dedup` retention).
-- Implement daily encrypted Oracle Cloud Object Storage backup job with 7-day retention; include a **verified restore test before production** (ongoing cadence, target, and owner remain open AD-17 follow-on #1).
-- Implement Caddy HTTPS config (domain-dependent) and SSH-tunnel loopback test path for non-domain phases.
-- Wire Prometheus/Grafana/Loki/Jaeger/Alertmanager for health/log/resource/disk/backup alerts.
-- Provide documented runtime health checks, secrets-injection conventions, and operator runbooks compatible with the approved **manual GitHub Actions deployment approval gate** (§14.9), but do **not** implement the Actions workflow itself.
+**Scope of URL-27 (backup-only):**
+- Backup script + systemd service for daily encrypted dumps of `urlshortener`, `url8_acceptance`, and `pg_dumpall --globals-only` to **Oracle Cloud Object Storage** (7-day retention, private bucket, credentials injected, no committed secrets).
+- **Disabled-by-default** systemd daily timer; the PR must **not** install/enable the timer or modify the host/database/cloud.
+- Failure-alert integration point for backup failures (consumed by the self-hosted alerting stack approved under AD-17).
+- Monthly disposable restore runbook: restore globals + per-DB dumps to a throwaway database.
+- Does **not** include: host/network changes, `url8-pg` remediation, Caddy, Redis Streams runtime, observability stack, CI/CD pipeline, or production deployment approval gates.
 
-**Dependencies / links proposal (URL-27):**
-- Depends on / links to: URL-8 (schema/migrations), URL-11 (transactional create), URL-13 (emit `eventId`), URL-14 (dedup gate), and URL-18 (bootstrap).
-- Does not supersede URL-19 (AWS CDK — Evidence Review / Agent Owner Human) or URL-20 (AWS CI/CD — To Do / Agent Owner Developer).
+**Manual backup evidence:** a manual backup already succeeded at `postgres/2026/11/03/20261103T143556Z-93f58719/`.
+
+**Out-of-scope / remaining proposed tasks (no guessed issue keys):**
+- **Oracle Docker Compose runtime baseline** (app, aggregator, scheduler, Redis Streams, Caddy, observability stack, secrets, runbooks) — proposed additional task under Epic URL-6; depends on URL-27 for backup and on AD-17 follow-ons #2–#5.
+- **`url8-pg` network/firewall remediation plan** (§14.2.1) — proposed separate task, requires explicit owner approval before any host/network change.
+- **Oracle CI/CD pipeline** with the **manual GitHub Actions deployment approval gate** (§14.9) — proposed separate task; depends on the runtime baseline and on AD-17 follow-on #4.
+
+**Manual timer enablement / production approval gates:**
+- The backup timer is delivered **disabled**; enabling it and scheduling production backups require explicit human approval after URL-27 review and any disposable restore rehearsal.
+- Production backup approval is separate from merging URL-27.
+
+**Dependencies / links:**
+- URL-27 depends on / links to URL-8 (schema/migrations) and URL-18 (bootstrap) for database/role conventions.
+- URL-27 does not supersede URL-19 (AWS CDK — Evidence Review / Agent Owner Human) or URL-20 (AWS CI/CD — To Do / Agent Owner Developer).
 - URL-20’s AWS pipeline was never implemented; re-scoping URL-20 to an Oracle CI/CD pipeline is an **alternative human decision only** and would require explicit owner approval with its AWS audit history retained.
-- Suggested parent: existing Epic URL-6. Suggested Agent Owner = Developer; assignee = human owner for credentials/approval gates.
-
-**Proposed additional task (no guessed issue key):** A separate Oracle CI/CD pipeline task may be created under Epic URL-6 to own the GitHub Actions workflow with the **manual deployment approval gate** (§14.9), container registry credentials, self-hosted runner or SSH deploy key, staging/prod VM targets, and notification channels. It would depend on URL-27 (runtime baseline) and on AD-17 follow-on #4. Do not assign an issue key in this document.
 
 ---
 
