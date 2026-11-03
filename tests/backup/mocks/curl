@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# URL-27 unit-test mock for curl — NEVER contacts any network.
+# The script delivers alerts as `curl -K - --data-binary @file` so the
+# endpoint never appears in argv; this mock records both halves.
+set -eu
+: "${MOCK_CURL_LOG:?MOCK_CURL_LOG not set}"
+
+cfg="$(cat)"
+data=""
+for arg in "$@"; do
+  case "$arg" in
+    @*) data="$(cat "${arg#@}" 2>/dev/null || echo unreadable)" ;;
+  esac
+done
+printf 'curl config=%s data=%s\n' "$(printf '%s' "$cfg" | tr '\n' '|')" "$data" >>"$MOCK_CURL_LOG"
+
+if [ "${MOCK_CURL_FAIL:-0}" = "1" ]; then
+  echo "mock curl: injected failure" >&2
+  exit 22
+fi
+exit 0

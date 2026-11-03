@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# URL-27 unit-test mock for pg_dump — NEVER connects to a database.
+# Records the invocation and writes deterministic fake dump content.
+set -eu
+: "${MOCK_PGDUMP_LOG:?MOCK_PGDUMP_LOG not set}"
+
+db=""
+out=""
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "pg_dump (PostgreSQL) 16.15 (mock)"
+    exit 0
+  fi
+done
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -d) db="$2"; shift 2 ;;
+    -f) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$db" ] && [ -n "$out" ] || { echo "mock pg_dump: missing -d/-f" >&2; exit 64; }
+echo "pg_dump db=$db" >>"$MOCK_PGDUMP_LOG"
+printf 'MOCK-CUSTOM-DUMP:%s\n' "$db" >"$out"
+chmod 600 "$out"
+exit 0

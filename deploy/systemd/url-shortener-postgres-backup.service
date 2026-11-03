@@ -1,0 +1,49 @@
+# url-shortener-api — URL-27: daily PostgreSQL backup service (one-shot).
+#
+# PROVIDED, NOT INSTALLED. Production installation/enablement requires a
+# separate human approval naming the merged commit and the Oracle VM target
+# (ticket URL-27). See docs/postgres-backup-recovery-runbook.md.
+#
+# Required external configuration BEFORE this unit can run:
+#   /etc/url-shortener/backup.env  (root:root, mode 0600) holding at least
+#   ALERT_WEBHOOK_URL=... (or ALERT_SECRET_FILE=/path/to/root-only/secret)
+#   The script itself fails closed (exit 2) if no alert endpoint exists, and
+#   the timer must remain disabled until that configuration is provided.
+[Unit]
+Description=URL Shortener API — PostgreSQL backup to OCI Object Storage (one-shot)
+Documentation=file:///opt/url-shortener/docs/postgres-backup-recovery-runbook.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Proposed install path — actual placement is part of the approval-gated
+# installation step; nothing is installed by this repository change.
+ExecStart=/opt/url-shortener/scripts/postgres-backup.sh
+# Required (no "-" prefix): a missing alert configuration must fail the unit,
+# not silently skip it.
+EnvironmentFile=/etc/url-shortener/backup.env
+
+# Safety: root-only staging/state (0700) + 0600 files; no inherited umask.
+UMask=0077
+
+# Containment — the script needs: local Postgres socket (AF_UNIX), the OCI
+# API + instance-principal metadata endpoint (AF_INET/AF_INET6), /run tmpfs
+# staging, /var/lib state, and read access to /etc configuration.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+
+# Large dumps must not be killed mid-run; failures surface as nonzero exits
+# (the script's own exit codes) and journald lines tagged url27-backup.
+TimeoutStartSec=1h
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=url27-backup

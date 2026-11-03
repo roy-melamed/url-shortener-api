@@ -1,0 +1,24 @@
+# url-shortener-api — URL-27: daily backup timer, 02:00 UTC.
+#
+# DISABLED BY DEFAULT and NOT INSTALLED by this repository change. The timer
+# ships inert: no package, script, unit file, or CI job in this repository
+# runs `systemctl enable`/`daemon-reload` on it. Enablement is a manual,
+# separately approved step (URL-27) and is gated on:
+#   1. /etc/url-shortener/backup.env with the alert endpoint (the service
+#      fails closed without it), and
+#   2. human approval naming the merged commit and the Oracle VM target.
+#
+# Missed runs: Persistent=true replays the missed 02:00 activation after boot
+# or downtime. Overlap: the service is Type=oneshot and the script takes a
+# non-blocking flock on its state lock, so a run never overlaps itself.
+[Unit]
+Description=URL Shortener API — daily PostgreSQL backup at 02:00 UTC (DISABLED by default)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=url-shortener-postgres-backup.service
+
+[Install]
+WantedBy=timers.target
