@@ -15,6 +15,7 @@
     "test": "vitest run --coverage",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
+    "check:naming": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-naming-policy.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
