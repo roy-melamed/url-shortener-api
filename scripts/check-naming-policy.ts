@@ -75,6 +75,100 @@ function scalar(raw: string): string {
   return value;
 }
 
+// Docker's run/create grammar is OPTIONS IMAGE [COMMAND] [ARG...]. These
+// standard value-taking options consume the next word (unless --flag=value).
+// Keep arity local/offline; never invoke Docker or interpret payload commands.
+const dockerValueOptions = new Set([
+  '--add-host',
+  '--annotation',
+  '--attach',
+  '--blkio-weight',
+  '--blkio-weight-device',
+  '--cap-add',
+  '--cap-drop',
+  '--cgroup-parent',
+  '--cgroupns',
+  '--cidfile',
+  '--cpu-count',
+  '--cpu-percent',
+  '--cpu-period',
+  '--cpu-quota',
+  '--cpu-rt-period',
+  '--cpu-rt-runtime',
+  '--cpu-shares',
+  '--cpus',
+  '--cpuset-cpus',
+  '--cpuset-mems',
+  '--detach-keys',
+  '--device',
+  '--device-cgroup-rule',
+  '--device-read-bps',
+  '--device-read-iops',
+  '--device-write-bps',
+  '--device-write-iops',
+  '--dns',
+  '--dns-option',
+  '--dns-search',
+  '--domainname',
+  '--entrypoint',
+  '--env',
+  '--env-file',
+  '--expose',
+  '--gpus',
+  '--group-add',
+  '--health-cmd',
+  '--health-interval',
+  '--health-retries',
+  '--health-start-interval',
+  '--health-start-period',
+  '--health-timeout',
+  '--hostname',
+  '--ip',
+  '--ip6',
+  '--ipc',
+  '--isolation',
+  '--kernel-memory',
+  '--label',
+  '--label-file',
+  '--link',
+  '--link-local-ip',
+  '--log-driver',
+  '--log-opt',
+  '--mac-address',
+  '--memory',
+  '--memory-reservation',
+  '--memory-swap',
+  '--memory-swappiness',
+  '--mount',
+  '--name',
+  '--network',
+  '--network-alias',
+  '--oom-score-adj',
+  '--pid',
+  '--pids-limit',
+  '--platform',
+  '--publish',
+  '--pull',
+  '--restart',
+  '--runtime',
+  '--security-opt',
+  '--shm-size',
+  '--stop-signal',
+  '--stop-timeout',
+  '--storage-opt',
+  '--sysctl',
+  '--tmpfs',
+  '--ulimit',
+  '--user',
+  '--userns',
+  '--uts',
+  '--volume',
+  '--volume-driver',
+  '--volumes-from',
+  '--workdir',
+]);
+const dockerShortValueOptions = new Set('acehlmpuvw');
+
 /** Tokenize simple shell command lists without executing anything. Quoted
  * text stays in one word, comments end the line, unquoted separators split
  * commands. Thus `echo "docker run ..."` is not a docker invocation.
@@ -129,8 +223,27 @@ function shellNames(line: string): string[] {
     if (tokens[index] !== 'run' && tokens[index] !== 'create') return [];
     const names: string[] = [];
     for (let i = index + 1; i < tokens.length; i++) {
-      if (tokens[i] === '--name' && tokens[i + 1]) names.push(tokens[++i]!);
-      else if (tokens[i]?.startsWith('--name=')) names.push(tokens[i]!.slice(7));
+      const option = tokens[i]!;
+      // First positional word is IMAGE. All later words belong to its payload,
+      // even if they spell --name. An explicit -- also ends option parsing.
+      if (option === '--' || !option.startsWith('-') || option === '-') break;
+      if (option.startsWith('--')) {
+        if (option.startsWith('--name=')) names.push(option.slice(7));
+        else if (dockerValueOptions.has(option)) {
+          const value = tokens[++i];
+          if (option === '--name' && value !== undefined) names.push(value);
+        }
+      } else {
+        // Short flags may be clustered (-itp 8080:80) or have attached values
+        // (-p8080:80). The first value-taking short option consumes the rest
+        // of its token, or the next token if no attached value remains.
+        for (let char = 1; char < option.length; char++) {
+          if (dockerShortValueOptions.has(option[char]!)) {
+            if (char === option.length - 1) i++;
+            break;
+          }
+        }
+      }
     }
     return names;
   });
@@ -142,7 +255,7 @@ function shellNames(line: string): string[] {
 function sqlNames(text: string): { value: string; pos: number }[] {
   const tokens = [
     ...text.matchAll(
-      /--[^\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|`[^`]*`|[\w.-]+|[^\s]/g,
+      /\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$|--[^\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|`[^`]*`|[\w$-]+|[^\s]/g,
     ),
   ].filter((m) => !m[0].startsWith('--') && !m[0].startsWith('/*'));
   const results: { value: string; pos: number }[] = [];
@@ -158,9 +271,15 @@ function sqlNames(text: string): { value: string; pos: number }[] {
       tokens[next + 2]?.[0].toUpperCase() === 'EXISTS'
     )
       next += 3;
-    const token = tokens[next];
-    if (token && !token[0].startsWith("'"))
+    // A target may be schema-qualified and each component can be quoted.
+    // Dot is a separate token, not part of a bare identifier; inspect every
+    // literal component instead of accepting only the leading schema name.
+    while (tokens[next] && /^(?:[A-Za-z_][\w$-]*|"(?:""|[^"])*"|`[^`]*`)$/.test(tokens[next]![0])) {
+      const token = tokens[next]!;
       results.push({ value: scalar(token[0]).replace(/^`|`$/g, ''), pos: token.index });
+      if (tokens[next + 1]?.[0] !== '.') break;
+      next += 2;
+    }
   }
   return results;
 }
