@@ -7,8 +7,54 @@ import { describe, expect, it } from 'vitest';
 import { checkRepository, checkSource } from '../../scripts/check-naming-policy.ts';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-// Dwight R1/R2: each probe is tested through the helper AND the real CLI.
+// Dwight R1–R5: each probe is tested through the helper AND the real CLI.
 const reviewProbes: [string, string, number][] = [
+  // R3: OPTIONS stop at IMAGE; payload words are not Docker options.
+  ['scripts/demo.sh', 'docker run --rm alpine echo --name URL-27', 0],
+  ['scripts/demo.sh', "docker run --rm alpine printf '%s\\n' --name=URL-27", 0],
+  ['scripts/demo.sh', 'docker run --name postgres16 alpine echo --name URL-27', 0],
+  [
+    '.github/workflows/demo.yml',
+    'name: CI\nsteps:\n  - run: docker run --rm alpine echo --name URL-27',
+    0,
+  ],
+  ['scripts/demo.sh', 'docker create --rm alpine echo --name URL-27', 0],
+  ['scripts/demo.sh', 'docker run --network bridge --name URL-27 alpine', 1],
+  ['scripts/demo.sh', 'docker create --env EXAMPLE=value --name=URL-27 alpine', 1],
+  ['scripts/demo.sh', 'docker run --label "example=--name URL-27" alpine', 0],
+  ['scripts/demo.sh', 'docker run -e EXAMPLE=value -p 8080:80 --name URL-27 alpine', 1],
+  ['scripts/demo.sh', 'docker run -it --rm --name=URL-27 alpine', 1],
+  ['scripts/demo.sh', 'docker run -itp 8080:80 --name URL-27 alpine', 1],
+  ['scripts/demo.sh', 'docker run -eEXAMPLE=value -p8080:80 --name URL-27 alpine', 1],
+  ['scripts/demo.sh', 'docker run --hostname alpine --name URL-27 alpine', 1],
+  ['scripts/demo.sh', 'docker run --name postgres16 --network bridge alpine echo --name=URL-27', 0],
+  [
+    'scripts/demo.sh',
+    'docker run --rm alpine echo --name URL-27; docker create --name URL-27 alpine',
+    1,
+  ],
+  // R4: matched dollar delimiters enclose string literals, not SQL code.
+  ['migrations/schema.sql', 'SELECT $$Example: CREATE TABLE URL-27$$;', 0],
+  ['migrations/schema.sql', 'SELECT $memo$Example: CREATE TABLE "URL-27"$memo$;', 0],
+  ['migrations/schema.sql', 'SELECT $memo_2$CREATE TABLE "URL-27"$memo_2$;', 0],
+  ['migrations/schema.sql', 'SELECT $$inner $memo$ CREATE TABLE "URL-27" $$;', 0],
+  ['migrations/schema.sql', 'SELECT $memo$inner $$ CREATE TABLE "URL-27"$memo$;', 0],
+  ['migrations/schema.sql', 'SELECT $$CREATE TABLE URL-27$$; CREATE TABLE "URL-27" (id int);', 1],
+  ['migrations/schema.sql', "SELECT '$memo$Example: CREATE TABLE URL-27$memo$';", 0],
+  // R5: check every component of literal qualified CREATE targets.
+  ['migrations/schema.sql', 'CREATE TABLE public."URL-27" (id int);', 1],
+  ['migrations/schema.sql', 'CREATE TABLE "public"."URL-27" (id int);', 1],
+  ['migrations/schema.sql', 'CREATE TABLE "URL-27"."links" (id int);', 1],
+  ['migrations/schema.sql', 'CREATE TABLE IF NOT EXISTS public . "URL-27" (id int);', 1],
+  ['migrations/schema.sql', 'CREATE UNIQUE INDEX public."URL-27-index" ON links(slug);', 1],
+  ['migrations/schema.sql', 'CREATE TABLE "public"."url8" (id int);', 0],
+  ['migrations/schema.sql', 'CREATE TABLE public.postgres16 (id int);', 0],
+  ['migrations/schema.sql', 'CREATE TABLE "public"."api-v2" (id int);', 0],
+  [
+    'migrations/schema.sql',
+    'SELECT $$CREATE TABLE public."URL-27"$$; CREATE TABLE public.ipv6_addresses(id int);',
+    0,
+  ],
   ['deploy/quoted.yml', 'services:\n  "URL-27-worker":\n    image: app', 1],
   ['deploy/quoted.yml', "services:\n  'URL-27-worker':\n    image: app", 1],
   ['deploy/quoted.yml', 'services:\n  postgres:\n    "container_name": "URL-27-postgres"', 1],
@@ -61,11 +107,11 @@ const reviewProbes: [string, string, number][] = [
   ['migrations/schema.sql', '-- example CREATE TABLE good\nCREATE TABLE "URL-27"(id INT);', 1],
 ];
 describe('naming declaration guard', () => {
-  it.each(reviewProbes)('R1/R2 helper: %s %s', (file, body, count) => {
+  it.each(reviewProbes)('R1–R5 helper: %s %s', (file, body, count) => {
     expect(checkSource(file, body)).toHaveLength(count);
   });
 
-  it.each(reviewProbes)('R1/R2 real CLI: %s %s', (file, body, count) => {
+  it.each(reviewProbes)('R1–R5 real CLI: %s %s', (file, body, count) => {
     const tmp = mkdtempSync(join(tmpdir(), 'naming-review-'));
     try {
       execFileSync('git', ['init', '-q'], { cwd: tmp });
