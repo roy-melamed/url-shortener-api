@@ -16,16 +16,19 @@
 #     when a failure abort is denied; the backup principal has no delete grant);
 #   * every object is size-checked against BACKUP_MAX_OBJECT_BYTES and
 #     fail-closed BEFORE upload, then HEAD + GET readback + SHA-256 compared;
+#     staging must hold the staged object AND its full readback at once, so
+#     preflight requires 2 * BACKUP_MAX_OBJECT_BYTES +
+#     BACKUP_RESERVE_HEADROOM_BYTES of free staging space;
 #   * the completion manifest is uploaded only after all three data objects
 #     (two pg_dump custom dumps + globals) pass readback verification;
-#   * no `oci ... delete` is ever issued (no delete grant; retention pruning is
-#     an open external decision — see runbook "Remaining configuration");
+#   * no `oci ... delete` is ever issued (the instance policy is no-delete;
+#     7-day retention is the bucket lifecycle rule's job — runbook §6);
 #   * alert endpoint/secret is REQUIRED external configuration; without it the
 #     script exits before touching the database, and the timer must stay
 #     disabled until it exists.
 #
 # Exit codes:
-#   0 success            7 pre-dump free-space check failed
+#   0 success            7 staging free-space/reserve check failed
 #   2 configuration      8 pg_dump / pg_dumpall failed
 #   3 missing dependency 9 staged object exceeds BACKUP_MAX_OBJECT_BYTES
 #   4 not root           10 OCI upload failed
@@ -56,9 +59,12 @@ BACKUP_DATABASES="${BACKUP_DATABASES:-urlshortener url8_acceptance}"
 BACKUP_STAGING_DIR="${BACKUP_STAGING_DIR:-/run/url-shortener-backup}"
 BACKUP_STAGING_REQUIRE_TMPFS="${BACKUP_STAGING_REQUIRE_TMPFS:-1}"
 BACKUP_STATE_DIR="${BACKUP_STATE_DIR:-/var/lib/url-shortener/backup}"
-# 1 GiB default: far above the observed dump size, far below VM RAM (tmpfs).
-BACKUP_MAX_OBJECT_BYTES="${BACKUP_MAX_OBJECT_BYTES:-1073741824}"
-BACKUP_MIN_FREE_BYTES="${BACKUP_MIN_FREE_BYTES:-$BACKUP_MAX_OBJECT_BYTES}"
+# 512 MiB default: staging holds the staged object AND its full readback at
+# once, so preflight reserves 2*max + headroom (VM /run is only ~1.25 GiB).
+# Growth beyond the bound fails closed (exit 9) and alerts — raising it is a
+# reviewed configuration change, never a silent tweak.
+BACKUP_MAX_OBJECT_BYTES="${BACKUP_MAX_OBJECT_BYTES:-536870912}"
+BACKUP_RESERVE_HEADROOM_BYTES="${BACKUP_RESERVE_HEADROOM_BYTES:-67108864}"
 
 # Required external alert configuration (AD-17: protected secrets outside
 # Git). Either the webhook URL itself (root-only env file) or a root-only
@@ -206,10 +212,10 @@ if [ -z "$_alert_value" ]; then
   log error "no alert endpoint configured — set ALERT_WEBHOOK_URL (root-only env file) or ALERT_SECRET_FILE"
   exit 2
 fi
-case "$BACKUP_MAX_OBJECT_BYTES:$BACKUP_MIN_FREE_BYTES" in
+case "$BACKUP_MAX_OBJECT_BYTES:$BACKUP_RESERVE_HEADROOM_BYTES" in
   *[!0-9:]* | :* | *:) fail 2 config "byte bounds must be positive integers" ;;
 esac
-if [ "$BACKUP_MAX_OBJECT_BYTES" -le 0 ] || [ "$BACKUP_MIN_FREE_BYTES" -le 0 ]; then
+if [ "$BACKUP_MAX_OBJECT_BYTES" -le 0 ] || [ "$BACKUP_RESERVE_HEADROOM_BYTES" -le 0 ]; then
   fail 2 config "byte bounds must be > 0"
 fi
 case "$ALERT_ON_SUCCESS" in 0 | 1) ;; *)
@@ -343,6 +349,13 @@ backup_dump() { # $1=local-file $2=object-name $3=kind $4=sha256 (globals path b
   if [ "$bytes" -gt "$BACKUP_MAX_OBJECT_BYTES" ]; then
     fail 9 bound "staged object $obj is $bytes bytes, exceeds BACKUP_MAX_OBJECT_BYTES=$BACKUP_MAX_OBJECT_BYTES — not uploaded"
   fi
+  # The readback temporarily doubles the footprint: refuse to upload when the
+  # staging fs can no longer hold a full copy alongside the staged object.
+  local free_now
+  free_now="$(staging_free)"
+  if ! printf '%s' "$free_now" | grep -Eq '^[0-9]+$' || [ "$free_now" -lt "$bytes" ]; then
+    fail 7 space "staging free space '$free_now' cannot hold readback ($bytes bytes) for $obj — not uploaded"
+  fi
   upload_verified "$obj" "$file" "$kind" "$sha" "$bytes"
   # Manifest entry — appended only after upload+readback verification.
   OBJECTS_JSON="${OBJECTS_JSON:+$OBJECTS_JSON,}{\"name\":\"$(json_escape "$obj")\",\"kind\":\"$kind\",\"sha256\":\"$sha\",\"bytes\":$bytes}"
@@ -354,7 +367,7 @@ dump_database() { # $1=database
   CURRENT_STAGE="dump"
   out="$STAGING_TMP/${db}.dump"
   rm -f "$out"
-  if ! pg_dump -Fc -d "$db" --no-owner --no-privileges -f "$out"; then
+  if ! pg_dump -Fc -d "$db" -f "$out"; then
     rm -f "$out"
     fail 8 dump "pg_dump failed for database $db"
   fi
@@ -384,12 +397,18 @@ dump_globals() {
 # Main
 # ---------------------------------------------------------------------------
 CURRENT_STAGE="space"
-free_bytes="$(df -PB1 "$STAGING_TMP" | awk 'NR==2 {print $4}')"
+staging_free() { # prints free bytes on the staging fs (empty on failure)
+  df -PB1 "$STAGING_TMP" | awk 'NR==2 {print $4}'
+}
+free_bytes="$(staging_free)"
 if ! printf '%s' "$free_bytes" | grep -Eq '^[0-9]+$'; then
   fail 6 staging "cannot determine free space for $STAGING_TMP"
 fi
-if [ "$free_bytes" -lt "$BACKUP_MIN_FREE_BYTES" ]; then
-  fail 7 space "staging free space $free_bytes < BACKUP_MIN_FREE_BYTES=$BACKUP_MIN_FREE_BYTES"
+# Staging must hold the staged object AND its full readback at once:
+# reserve >= 2 * max object + headroom before dumping anything.
+required_free=$(( BACKUP_MAX_OBJECT_BYTES * 2 + BACKUP_RESERVE_HEADROOM_BYTES ))
+if [ "$free_bytes" -lt "$required_free" ]; then
+  fail 7 space "staging free space $free_bytes < required reserve 2*BACKUP_MAX_OBJECT_BYTES+headroom=$required_free (max=$BACKUP_MAX_OBJECT_BYTES headroom=$BACKUP_RESERVE_HEADROOM_BYTES)"
 fi
 
 OBJECTS_JSON=""

@@ -5,6 +5,9 @@ set -eu
 
 globals=0
 out=""
+if [ -n "${MOCK_PGDUMP_FLAGS_LOG:-}" ]; then
+  printf 'pg_dumpall %s\n' "$*" >>"$MOCK_PGDUMP_FLAGS_LOG"
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --globals-only) globals=1; shift ;;

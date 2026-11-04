@@ -15,7 +15,17 @@
  *     upload, no automation that enables the disabled-by-default timer.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -80,6 +90,12 @@ describe('URL-27 · systemd service unit', () => {
     expect(unit).not.toMatch(/^EnvironmentFile=-/m);
   });
 
+  it('sets PATH to a root-accessible OCI CLI location (ProtectHome blocks /home)', () => {
+    expect(unit).toContain('Environment=PATH=/opt/url-shortener/oci-cli/bin:');
+    // the user-level install is documented as unreachable for this unit
+    expect(unit).toContain('/home/ubuntu/.local/venvs/oci-cli/bin/oci');
+  });
+
   it('applies root-safe umask and containment', () => {
     expect(unit).toMatch(/^UMask=0077$/m);
     for (const opt of [
@@ -135,6 +151,38 @@ describe('URL-27 · systemd timer unit', () => {
     expect(cal.stdout).toContain('02:00:00');
     expect(cal.stdout).not.toMatch(/Error/);
   });
+
+  it('passes an isolated systemd-analyze verify with stubbed install paths', () => {
+    // The planned /opt/url-shortener paths do not exist before deployment
+    // (raw verify fails on the missing ExecStart — expected pre-install), so
+    // validation runs against temp copies with stubbed ExecStart/EnvironmentFile.
+    const analyzer = spawnSync('systemd-analyze', ['--version'], { encoding: 'utf8' });
+    if (analyzer.error || analyzer.status !== 0) return; // not on this host/CI
+    const tmp = mkdtempSync(join(tmpdir(), 'url27-units-'));
+    try {
+      const servicePath = join(tmp, 'url-shortener-postgres-backup.service');
+      const timerPath = join(tmp, 'url-shortener-postgres-backup.timer');
+      copyFileSync(SERVICE, servicePath);
+      copyFileSync(TIMER, timerPath);
+      const stub = join(tmp, 'stub.sh');
+      writeFileSync(stub, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const envFile = join(tmp, 'backup.env');
+      writeFileSync(envFile, 'ALERT_WEBHOOK_URL=https://example.invalid/h\n', { mode: 0o600 });
+      writeFileSync(
+        servicePath,
+        read(servicePath)
+          .replace(/^ExecStart=.*$/m, `ExecStart=${stub}`)
+          .replace(/^EnvironmentFile=.*$/m, `EnvironmentFile=${envFile}`),
+      );
+      const r = spawnSync('systemd-analyze', ['verify', servicePath, timerPath], {
+        encoding: 'utf8',
+      });
+      expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+      expect(`${r.stdout}\n${r.stderr}`).not.toContain('is not executable');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('URL-27 · static safety contracts', () => {
@@ -176,6 +224,13 @@ describe('URL-27 · static safety contracts', () => {
     expect(body).toContain('--no-multipart');
   });
 
+  it('dumps capture default ownership/ACLs (matches the verified manual backup)', () => {
+    const body = read(SCRIPT);
+    expect(body).toContain('pg_dump -Fc -d "$db" -f "$out"');
+    expect(body).not.toContain('--no-owner');
+    expect(body).not.toContain('--no-privileges');
+  });
+
   it('no CI workflow or package script enables or runs the backup timer', () => {
     const ciFiles = join(ROOT, '.github', 'workflows');
     for (const f of readdirSync(ciFiles)) {
@@ -190,6 +245,28 @@ describe('URL-27 · static safety contracts', () => {
     for (const [, cmd] of Object.entries(pkg.scripts)) {
       expect(cmd).not.toMatch(/systemctl\s+enable|postgres-backup\.sh/);
     }
+  });
+});
+
+describe('URL-27 · restore rehearsal evidence report', () => {
+  const report = read(join(ROOT, 'docs', 'url-27-restore-rehearsal-20261103.md'));
+
+  it('records the completed rehearsal facts', () => {
+    expect(report).toContain('20261103T143556Z-93f58719');
+    expect(report).toContain('PASS');
+    expect(report).toContain('71.62');
+    expect(report).toContain('url8_acceptance');
+    expect(report).toContain('pgmigrations');
+  });
+
+  it('scopes the report as a manual-backup restore rehearsal, not code QA', () => {
+    expect(report).toMatch(/restore rehearsal/i);
+    expect(report).toMatch(/not\s+post-merge\s+code\s+QA/i);
+  });
+
+  it('contains no secrets or globals contents', () => {
+    expect(report).not.toMatch(/password_hash|-----BEGIN [A-Z ]*PRIVATE KEY-----/i);
+    expect(report).not.toMatch(/postgres(?:ql)?:\/\/[^\s'"`]*@/);
   });
 });
 

@@ -24,6 +24,13 @@ ExecStart=/opt/url-shortener/scripts/postgres-backup.sh
 # not silently skip it.
 EnvironmentFile=/etc/url-shortener/backup.env
 
+# OCI CLI location: ProtectHome=yes makes the existing user-level install
+# (/home/ubuntu/.local/venvs/oci-cli/bin/oci) unreachable for this unit, so
+# the CLI must be installed ROOT-accessible at the proposed path below as
+# part of the (separately approved) deployment — NOT installed by this
+# change. PATH here is what `command -v oci` resolves in the script.
+Environment=PATH=/opt/url-shortener/oci-cli/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 # Safety: root-only staging/state (0700) + 0600 files; no inherited umask.
 UMask=0077
 

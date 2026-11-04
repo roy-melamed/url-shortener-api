@@ -6,6 +6,10 @@ set -eu
 
 db=""
 out=""
+# Record raw flags for fidelity assertions (e.g. no --no-owner added).
+if [ -n "${MOCK_PGDUMP_FLAGS_LOG:-}" ]; then
+  printf 'pg_dump %s\n' "$*" >>"$MOCK_PGDUMP_FLAGS_LOG"
+fi
 for arg in "$@"; do
   if [ "$arg" = "--version" ]; then
     echo "pg_dump (PostgreSQL) 16.15 (mock)"

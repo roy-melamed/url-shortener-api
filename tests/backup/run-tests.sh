@@ -74,6 +74,7 @@ run_backup() {
     MOCK_CURL_LOG="$CASE/curl.log" \
     MOCK_OBJ_STORE="$CASE/objstore" \
     MOCK_SNAPSHOT_STAGING="$CASE/staging" \
+    MOCK_PGDUMP_FLAGS_LOG="$CASE/pgdump-flags.log" \
     BACKUP_STAGING_DIR="$CASE/staging" \
     BACKUP_STAGING_REQUIRE_TMPFS=0 \
     BACKUP_STATE_DIR="$CASE/state" \
@@ -114,6 +115,13 @@ if [ -f "$CASE/pgdump.log" ] &&
   ok "both databases dumped then globals exported (one pg_dump per DB, --globals-only)"
 else
   not_ok "unexpected dump sequence"; sed 's/^/  # /' "$CASE/pgdump.log"
+fi
+if grep -q -- '-Fc' "$CASE/pgdump-flags.log" &&
+  grep -q -- '--globals-only' "$CASE/pgdump-flags.log" &&
+  ! grep -qE -- '--no-owner|--no-privileges' "$CASE/pgdump-flags.log"; then
+  ok "dump flags match the verified manual backup: pg_dump -Fc with default ownership/ACL capture"
+else
+  not_ok "dump flags diverge from the verified manual backup"; sed 's/^/  # /' "$CASE/pgdump-flags.log"
 fi
 seq_expected="put:urlshortener.dump
 head:urlshortener.dump
@@ -228,6 +236,15 @@ else
   ok "nothing uploaded once the size bound is exceeded"
 fi
 assert_file_contains "$CASE/pgdump.log" "pg_dump db=urlshortener" "dump happened before the bound check"
+
+new_case reserve-preflight
+run_backup BACKUP_MAX_OBJECT_BYTES=999999999999
+assert_exit 7 "preflight fails closed when 2*max+headroom exceeds staging free space"
+if [ -s "$CASE/pgdump.log" ] || [ -s "$CASE/oci.log" ]; then
+  not_ok "no dump/upload attempted when the reserve cannot be met"
+else
+  ok "no dump/upload attempted when the reserve cannot be met"
+fi
 
 new_case upload-failure
 run_backup MOCK_OCI_FAIL_PUT_INDEX=2
