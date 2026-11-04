@@ -184,100 +184,122 @@ Alertmanager may also monitor the age of `last-success` (AD-17 observability).
 
 ## 5. Monthly disposable restore procedure (DOCUMENTATION ONLY)
 
-> **Recurring procedure not yet approved.** A one-time **restore rehearsal of
-> the manual backup** was completed and PASSed by QA on 2026-11-03 (run
+> **Owner-requested documentation; no automation.** The owner explicitly
+> requested monthly disposable restore testing **documentation** — this
+> section is that manual runbook. **No restore timer or automated schedule is
+> created by this ticket** (the only timer in the repo is the disabled backup
+> timer). A specific owner and recurring schedule for the monthly runs remain
+> **unassigned** (AD-17 follow-on #1); assigning them is a human decision.
+>
+> **Completed rehearsal:** a one-time **restore rehearsal of the manual
+> backup** was completed and PASSed by QA on 2026-11-03 (run
 > `20261103T143556Z-93f58719`, both DBs, 15 expected tables each plus
 > `pgmigrations`, measured RTO 71.62 s) — sanitized evidence in
 > `url-27-restore-rehearsal-20261103.md`. That rehearsal covers the manual
-> backup only, not post-merge code QA. The **monthly cadence** below remains
-> documentation-only until the human approves the exact plan; approved owner,
-> cadence, and numeric RPO/RTO targets remain open (AD-17 follow-on #1), and
-> each drill **measures RTO** for that decision.
+> backup only, not post-merge code QA. The monthly cadence below remains
+> documentation-only until the human approves the exact plan and assigns an
+> owner; each drill **measures RTO** and records observed counts for that
+> decision.
 
 **Never target the existing `url8-pg` container, its volume, or the live
-`urlshortener`/`url8_acceptance` databases.** The drill uses a throwaway
-container with **no network and no published ports**.
+`urlshortener`/`url8_acceptance` databases.** The drill uses a uniquely
+named throwaway container with **`--network none` and no published ports** —
+no network or connection to `url8-pg` of any kind.
 
 ### Preconditions
 
 1. Human approval of this exact plan (recorded in the ticket).
 2. A verified backup object chosen from the bucket, e.g.
    `postgres/2026/11/03/20261103T143556Z-93f58719/` — download all four
-   objects to a root-only tmpfs directory (mode 0600) and verify each
-   SHA-256 against `manifest.json` before starting the clock.
-3. `postgres:16-alpine` image available locally (same major version as
-   `url8-pg` 16.x).
+   objects into a fresh temp directory (mode 0700, files 0600) and verify
+   each SHA-256 against `manifest.json` before starting the clock.
+3. `postgres:16-alpine` already present locally (same major version as
+   `url8-pg` 16.x) — the run uses **`--pull=never`**, so no registry access
+   is needed (none exists on an isolated container anyway).
 4. Note the start time — RTO is measured from drill start until the final
    data check passes.
 
-### Steps (disposable, isolated)
+### Steps (disposable, isolated — the exact approved/tested method)
 
 ```bash
 set -euo pipefail
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-SCRATCH="url27-restore-scratch-${STAMP}"     # NEVER url8-pg — see guard below
+SCRATCH="url27-restore-scratch-${STAMP}"     # unique per run; NEVER url8-pg
+WORKDIR="$(mktemp -d /tmp/url27-restore.XXXXXX)"   # temp dir for the drill
+chmod 700 "$WORKDIR"
 
 # Guard: refuse to run if the name ever collides with the live container.
 [ "$SCRATCH" != "url8-pg" ] || { echo "REFUSED: live container name"; exit 1; }
 docker ps --format '{{.Names}}' | grep -qx "$SCRATCH" && { echo "REFUSED: exists"; exit 1; }
 
-# Disposable cluster: private user-defined network, NO published ports,
-# --network none is used for the restore phase (docker exec/docker cp do not
-# need networking). Anonymous scratch volume only — never url8-pg's volume.
-docker volume create "${SCRATCH}-vol" >/dev/null
-docker run -d --name "$SCRATCH" --network none \
-  -e POSTGRES_USER=restore -e POSTGRES_PASSWORD=restore-only \
-  -e POSTGRES_DB=scratch -v "${SCRATCH}-vol":/var/lib/postgresql/data \
+# Unique disposable PG16 cluster: NO network, NO published ports, NO named
+# volume — PGDATA lives on a 512 MiB tmpfs. POSTGRES_HOST_AUTH_METHOD=trust
+# is acceptable ONLY because the container has no network interface
+# reachable by anything (--network none). No password is set or stored.
+docker run -d --name "$SCRATCH" --network none --pull=never \
+  --tmpfs /var/lib/postgresql/data:rw,nosuid,size=512m \
+  -e POSTGRES_USER=restore_admin \
+  -e POSTGRES_HOST_AUTH_METHOD=trust \
   postgres:16-alpine
 
 # wait for readiness (exec-based; no ports involved)
-until docker exec "$SCRATCH" pg_isready -U restore -q; do sleep 1; done
+until docker exec "$SCRATCH" pg_isready -U restore_admin -q; do sleep 1; done
 
-# 1) globals first (roles) — SENSITIVE file, local only, delete after
-docker cp ./globals.sql "$SCRATCH:/tmp/globals.sql"
-docker exec "$SCRATCH" psql -v ON_ERROR_STOP=1 -U restore -d postgres -f /tmp/globals.sql
+# 1) globals first into the maintenance DB — SENSITIVE file, local only,
+#    deleted from the container immediately after use
+docker cp "$WORKDIR/globals.sql" "$SCRATCH:/tmp/globals.sql"
+docker exec "$SCRATCH" psql -v ON_ERROR_STOP=1 -U restore_admin -d postgres -f /tmp/globals.sql
 docker exec "$SCRATCH" rm -f /tmp/globals.sql
 
-# 2) both databases — globals restored first, so default ownership/ACLs in
-#    the dump are applied faithfully (no --no-owner/--no-privileges: the
-#    automated dumps match the verified manual backup)
-docker cp ./urlshortener.dump "$SCRATCH:/tmp/"
-docker cp ./url8_acceptance.dump "$SCRATCH:/tmp/"
-docker exec "$SCRATCH" pg_restore -U restore -d scratch /tmp/urlshortener.dump
-docker exec "$SCRATCH" pg_restore -U restore -d scratch /tmp/url8_acceptance.dump
+# 2) each custom archive is restored with --create so its named database is
+#    NEWLY CREATED inside the scratch cluster (globals were imported first,
+#    so ownership applies faithfully — no --no-owner/--no-privileges)
+docker cp "$WORKDIR/urlshortener.dump" "$SCRATCH:/tmp/"
+docker cp "$WORKDIR/url8_acceptance.dump" "$SCRATCH:/tmp/"
+docker exec "$SCRATCH" pg_restore --create --exit-on-error -d postgres /tmp/urlshortener.dump
+docker exec "$SCRATCH" pg_restore --create --exit-on-error -d postgres /tmp/url8_acceptance.dump
+docker exec "$SCRATCH" rm -f /tmp/urlshortener.dump /tmp/url8_acceptance.dump
 
-# 3) schema / basic data checks
-docker exec "$SCRATCH" psql -U restore -d scratch -c "\dt"
-docker exec "$SCRATCH" psql -U restore -d scratch -c \
+# 3) schema / basic data checks — observed counts are RECORDED AS-IS;
+#    there is no source row-count baseline unless one was captured first
+docker exec "$SCRATCH" psql -U restore_admin -d urlshortener -c "SELECT 1;"   # must succeed
+docker exec "$SCRATCH" psql -U restore_admin -d url8_acceptance -c "SELECT 1;" # must succeed
+docker exec "$SCRATCH" psql -U restore_admin -d urlshortener -c "\dt"
+docker exec "$SCRATCH" psql -U restore_admin -d url8_acceptance -c "\dt"
+docker exec "$SCRATCH" psql -U restore_admin -d urlshortener -c \
   "SELECT (SELECT count(*) FROM users) AS users,
           (SELECT count(*) FROM links) AS links,
           (SELECT count(*) FROM click_event_dedup) AS dedup;"
-# expect: the 15 URL-8 tables present; row counts >= the source's pre-drill
-# counts for users/links; FK check clean:
-docker exec "$SCRATCH" psql -U restore -d scratch -c \
+docker exec "$SCRATCH" psql -U restore_admin -d url8_acceptance -c \
+  "SELECT (SELECT count(*) FROM users) AS users,
+          (SELECT count(*) FROM links) AS links,
+          (SELECT count(*) FROM click_event_dedup) AS dedup;"
+# expect: 15 URL-8 tables + pgmigrations in EACH created database; FK check clean:
+docker exec "$SCRATCH" psql -U restore_admin -d urlshortener -c \
   "SELECT conname FROM pg_constraint WHERE contype='f' AND NOT convalidated;"  # expect: 0 rows
 
 # 4) measured RTO — record elapsed wall time in the drill notes
-# 5) cleanup — remove ALL drill material, including the sensitive globals
+# 5) cleanup — RESTRICTED to this uniquely named container and this temp
+#    directory (plus the SENSITIVE globals copy); nothing else exists
 docker rm -f "$SCRATCH"
-docker volume rm "${SCRATCH}-vol"
-rm -f ./globals.sql ./urlshortener.dump ./url8_acceptance.dump
-unset STAMP SCRATCH
+rm -rf "$WORKDIR"
+unset STAMP SCRATCH WORKDIR
 ```
 
 ### Drill record (fill in per run)
 
-| Field                                   | Value  |
-| --------------------------------------- | ------ |
-| Backup object (run id)                  |        |
-| SHA-256 verified before restore         | yes/no |
-| Globals restored                        | yes/no |
-| `urlshortener` restored + row counts    |        |
-| `url8_acceptance` restored + row counts |        |
-| FK validation clean                     | yes/no |
-| **Measured RTO** (start → final check)  |        |
-| Defects/risks observed                  |        |
-| Approver of this drill                  |        |
+| Field                                        | Value                                               |
+| -------------------------------------------- | --------------------------------------------------- |
+| Backup object (run id)                       |                                                     |
+| SHA-256 verified before restore              | yes/no                                              |
+| Globals restored                             | yes/no                                              |
+| `urlshortener` restored + observed counts    | users/links/dedup (as observed — no baseline)       |
+| `url8_acceptance` restored + observed counts | users/links/dedup (as observed — no baseline)       |
+| Source row-count baseline captured?          | yes/no (optional; without it no comparison is made) |
+| FK validation clean                          | yes/no                                              |
+| **Measured RTO** (start → final check)       |                                                     |
+| Defects/risks observed                       |                                                     |
+| Approver of this drill                       |                                                     |
 
 The live `url8-pg` container, its volume, the Docker networks, the host
 firewall, OCI networking/buckets, and cloud IAM are **untouched** by this

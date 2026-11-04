@@ -155,7 +155,8 @@ describe('URL-27 · systemd timer unit', () => {
   it('passes an isolated systemd-analyze verify with stubbed install paths', () => {
     // The planned /opt/url-shortener paths do not exist before deployment
     // (raw verify fails on the missing ExecStart — expected pre-install), so
-    // validation runs against temp copies with stubbed ExecStart/EnvironmentFile.
+    // validation runs against temp copies with a stub executable and env file
+    // in a temporary root — no host files are created.
     const analyzer = spawnSync('systemd-analyze', ['--version'], { encoding: 'utf8' });
     if (analyzer.error || analyzer.status !== 0) return; // not on this host/CI
     const tmp = mkdtempSync(join(tmpdir(), 'url27-units-'));
@@ -181,6 +182,27 @@ describe('URL-27 · systemd timer unit', () => {
       expect(`${r.stdout}\n${r.stderr}`).not.toContain('is not executable');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('raw verify fails ONLY on the documented install-path precondition', () => {
+    // Reproduces the owner's isolated invocation (exit 1 pre-install) and
+    // pins its cause: any diagnostic mentioning our units must be exactly
+    // the missing /opt ExecStart — never a unit syntax error. On a host
+    // where the path exists there are no such diagnostics at all.
+    const analyzer = spawnSync('systemd-analyze', ['--version'], { encoding: 'utf8' });
+    if (analyzer.error || analyzer.status !== 0) return; // not on this host/CI
+    const raw = spawnSync('systemd-analyze', ['verify', SERVICE, TIMER], { encoding: 'utf8' });
+    const lines = `${raw.stdout}\n${raw.stderr}`
+      .split('\n')
+      .filter((l) => l.includes('url-shortener-postgres-backup'));
+    for (const line of lines) {
+      expect(
+        line,
+        `unexpected unit diagnostic (only the install-path precondition is allowed): ${line}`,
+      ).toMatch(
+        /Command \/opt\/url-shortener\/scripts\/postgres-backup\.sh is not executable: No such file or directory/,
+      );
     }
   });
 });
@@ -257,6 +279,14 @@ describe('URL-27 · restore rehearsal evidence report', () => {
     expect(report).toContain('71.62');
     expect(report).toContain('url8_acceptance');
     expect(report).toContain('pgmigrations');
+  });
+
+  it('records exact observed counts and disclaims any source baseline', () => {
+    expect(report).toMatch(/0\/0\/0/);
+    expect(report).toMatch(/1\/1\/0/);
+    expect(report).toMatch(/SELECT 1/);
+    expect(report).toMatch(/no\s+(backup-time\s+or\s+live-source\s+)?row-count\s+baseline/i);
+    expect(report).not.toMatch(/matched the source/i);
   });
 
   it('scopes the report as a manual-backup restore rehearsal, not code QA', () => {
