@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# URL-27 unit-test mock for pg_dumpall — NEVER connects to a database.
+set -eu
+: "${MOCK_PGDUMP_LOG:?MOCK_PGDUMP_LOG not set}"
+
+globals=0
+out=""
+if [ -n "${MOCK_PGDUMP_FLAGS_LOG:-}" ]; then
+  printf 'pg_dumpall %s\n' "$*" >>"$MOCK_PGDUMP_FLAGS_LOG"
+fi
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --globals-only) globals=1; shift ;;
+    -f) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ "$globals" = "1" ] && [ -n "$out" ] || { echo "mock pg_dumpall: want --globals-only -f" >&2; exit 64; }
+echo "pg_dumpall globals=1" >>"$MOCK_PGDUMP_LOG"
+printf 'MOCK-GLOBALS-SENSITIVE\n' >"$out"
+chmod 600 "$out"
+exit 0

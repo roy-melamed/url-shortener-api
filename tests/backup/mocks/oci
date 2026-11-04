@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# URL-27 unit-test mock for the OCI CLI — NEVER contacts OCI or any network.
+#
+# Records every invocation (action, object name, source file, single-part
+# flag, and how many files are staged at call time) so the harness can assert
+# one-at-a-time staging, --no-multipart-from-file uploads, readback order,
+# manifest-last sequencing, and the absence of any delete call.
+#
+# Fail-injection knobs:
+#   MOCK_OCI_FAIL_PUT_INDEX=N   fail the Nth `put` (1-based)
+#   MOCK_CORRUPT_GET=1          corrupt readback bytes (checksum mismatch)
+set -eu
+: "${MOCK_LOG:?MOCK_LOG not set}"
+: "${MOCK_OBJ_STORE:?MOCK_OBJ_STORE not set}"
+
+[ "${1:-}" = "os" ] && [ "${2:-}" = "object" ] || { echo "mock oci: want 'os object ...'" >&2; exit 64; }
+action="${3:-}"
+all_args="$*"
+shift 3
+
+name=""
+file=""
+nomultipart="no"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --name) name="$2"; shift 2 ;;
+    --file) file="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf '%s\n' "$all_args" | grep -q -- '--no-multipart' && nomultipart="yes"
+[ -n "$name" ] || { echo "mock oci: missing --name" >&2; exit 64; }
+
+staged=0
+if [ -n "${MOCK_SNAPSHOT_STAGING:-}" ] && [ -d "${MOCK_SNAPSHOT_STAGING:-}" ]; then
+  staged="$(find "$MOCK_SNAPSHOT_STAGING" -type f | wc -l)"
+fi
+printf 'oci %s name=%s file=%s nomultipart=%s staged=%s\n' \
+  "$action" "$name" "${file:-none}" "$nomultipart" "$staged" >>"$MOCK_LOG"
+
+case "$action" in
+  put)
+    [ -n "$file" ] || { echo "mock oci put: missing --file" >&2; exit 64; }
+    [ "$file" != "-" ] || { echo "mock oci put: stdin upload refused" >&2; exit 64; }
+    [ -f "$file" ] || { echo "mock oci put: $file does not exist" >&2; exit 64; }
+    # Single-part contract: the backup principal has no delete grant, so a
+    # stranded multipart upload could never be cleaned up.
+    printf '%s\n' "$all_args" | grep -q -- '--no-multipart' || {
+      echo "mock oci put: --no-multipart missing" >&2; exit 64
+    }
+    n="$(grep -c '^oci put ' "$MOCK_LOG")"
+    if [ "${MOCK_OCI_FAIL_PUT_INDEX:-0}" = "$n" ]; then
+      echo "mock oci put: injected failure at index $n" >&2
+      exit 1
+    fi
+    mkdir -p "$MOCK_OBJ_STORE/$(dirname "$name")"
+    cp "$file" "$MOCK_OBJ_STORE/$name"
+    ;;
+  head)
+    [ -f "$MOCK_OBJ_STORE/$name" ] || { echo "mock oci head: $name not found" >&2; exit 1; }
+    ;;
+  get)
+    [ -n "$file" ] && [ "$file" != "-" ] || { echo "mock oci get: want --file <path>" >&2; exit 64; }
+    [ -f "$MOCK_OBJ_STORE/$name" ] || { echo "mock oci get: $name not found" >&2; exit 1; }
+    cp "$MOCK_OBJ_STORE/$name" "$file"
+    if [ "${MOCK_CORRUPT_GET:-0}" = "1" ]; then
+      printf 'CORRUPTED-READBACK\n' >>"$file"
+    fi
+    ;;
+  delete)
+    # The production principal has NO delete grant; the script must never get
+    # here. The harness asserts this line never appears in the log.
+    echo "mock oci delete: UNEXPECTED — script must not issue deletes" >&2
+    ;;
+  *)
+    echo "mock oci: unknown action '$action'" >&2
+    exit 64
+    ;;
+esac
+exit 0
