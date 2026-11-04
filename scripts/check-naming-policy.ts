@@ -44,6 +44,127 @@ export function activeFile(file: string): boolean {
   );
 }
 
+/** Strip shell/YAML # comments only outside quotes, never a quoted value. */
+function withoutComment(line: string): string {
+  let quote = '';
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]!;
+    if (char === '\\' && quote !== "'") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = '';
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === '#' && (i === 0 || /\s/.test(line[i - 1]!))) return line.slice(0, i);
+  }
+  return line;
+}
+
+/** Ordinary single/double quoted YAML literals; no evaluation/interpolation. */
+function scalar(raw: string): string {
+  const value = raw.trim();
+  if (value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1).replace(/''/g, "'");
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      return JSON.parse(value) as string;
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
+}
+
+/** Tokenize simple shell command lists without executing anything. Quoted
+ * text stays in one word, comments end the line, unquoted separators split
+ * commands. Thus `echo "docker run ..."` is not a docker invocation.
+ */
+function shellNames(line: string): string[] {
+  const commands: string[][] = [];
+  let words: string[] = [];
+  let word = '';
+  let quote = '';
+  const finishWord = (): void => {
+    if (word) words.push(word);
+    word = '';
+  };
+  const finishCommand = (): void => {
+    finishWord();
+    if (words.length) commands.push(words);
+    words = [];
+  };
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]!;
+    if (char === '\\' && quote !== "'" && i + 1 < line.length) {
+      word += line[++i];
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = '';
+      else word += char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '#' && !word) break;
+    if (';|&'.includes(char)) finishCommand();
+    else if (/\s/.test(char)) finishWord();
+    else word += char;
+  }
+  finishCommand();
+  return commands.flatMap((tokens) => {
+    // Simple leading assignments / sudo are supported. Dynamic commands,
+    // complex wrappers and multiline shell grammar remain semantic review.
+    let index = 0;
+    while (/^[A-Za-z_][\w]*=/.test(tokens[index] ?? '')) index++;
+    if (tokens[index] === 'sudo') {
+      index++;
+      while (tokens[index]?.startsWith('-')) index++;
+    }
+    if (!/(?:^|\/)docker$/.test(tokens[index] ?? '')) return [];
+    index++;
+    if (tokens[index] === 'container') index++;
+    if (tokens[index] !== 'run' && tokens[index] !== 'create') return [];
+    const names: string[] = [];
+    for (let i = index + 1; i < tokens.length; i++) {
+      if (tokens[i] === '--name' && tokens[i + 1]) names.push(tokens[++i]!);
+      else if (tokens[i]?.startsWith('--name=')) names.push(tokens[i]!.slice(7));
+    }
+    return names;
+  });
+}
+
+/** SQL tokens distinguish quoted identifiers from string literals/comments.
+ * SQL is scanned only in SQL files, never in shell echo/printf prose.
+ */
+function sqlNames(text: string): { value: string; pos: number }[] {
+  const tokens = [
+    ...text.matchAll(
+      /--[^\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|`[^`]*`|[\w.-]+|[^\s]/g,
+    ),
+  ].filter((m) => !m[0].startsWith('--') && !m[0].startsWith('/*'));
+  const results: { value: string; pos: number }[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i]![0].toUpperCase() !== 'CREATE') continue;
+    let next = i + 1;
+    if (tokens[next]?.[0].toUpperCase() === 'UNIQUE') next++;
+    if (!/^(?:DATABASE|SCHEMA|TABLE|INDEX)$/i.test(tokens[next]?.[0] ?? '')) continue;
+    next++;
+    if (
+      tokens[next]?.[0].toUpperCase() === 'IF' &&
+      tokens[next + 1]?.[0].toUpperCase() === 'NOT' &&
+      tokens[next + 2]?.[0].toUpperCase() === 'EXISTS'
+    )
+      next += 3;
+    const token = tokens[next];
+    if (token && !token[0].startsWith("'"))
+      results.push({ value: scalar(token[0]).replace(/^`|`$/g, ''), pos: token.index });
+  }
+  return results;
+}
+
 export function checkSource(file: string, text: string): Finding[] {
   if (!activeFile(file)) return [];
   const findings: Finding[] = [];
@@ -89,16 +210,26 @@ export function checkSource(file: string, text: string): Finding[] {
       ts.forEachChild(node, visit);
     };
     visit(source);
+  } else if (file.endsWith('.sql')) {
+    for (const name of sqlNames(text)) add(name.value, name.pos);
   } else {
+    const yaml = /\.ya?ml$/.test(file);
+    let runBlockIndent: number | undefined;
     let offset = 0;
     for (const line of text.split('\n')) {
+      const indent = line.length - line.trimStart().length;
+      if (runBlockIndent !== undefined && line.trim() && indent <= runBlockIndent)
+        runBlockIndent = undefined;
       if (!/^\s*(?:#|--|;)/.test(line)) {
-        // Scalar YAML / shell / env / systemd declarations. Mapping keys
-        // matching an issue token also count (e.g. Compose service names).
-        const decl = line.match(/^\s*([\w.-]+)\s*[:=]\s*(.*)$/);
+        const code = withoutComment(line);
+        // YAML permits ordinary quoted mapping keys (including sequence maps).
+        // Assignments in shell/env/systemd retain their separate syntax.
+        const decl = yaml
+          ? code.match(/^\s*(?:-\s+)?("(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[\w.-]+)\s*:\s*(.*)$/)
+          : code.match(/^\s*([\w.-]+)\s*=\s*(.*)$/);
         if (decl) {
-          const key = decl[1]!;
-          const value = decl[2]!.replace(/\s+#.*$/, '');
+          const key = scalar(decl[1]!);
+          const value = yaml ? scalar(decl[2]!) : decl[2]!;
           if (jira.test(key) || legacy.test(key)) add(key, offset);
           if (
             field.test(key) ||
@@ -107,11 +238,17 @@ export function checkSource(file: string, text: string): Finding[] {
             )
           )
             add(value, offset);
+          if (yaml && key === 'run') {
+            if (/^[|>][-+]?/.test(value)) runBlockIndent = indent;
+            else for (const name of shellNames(value)) add(name, offset);
+          }
         }
-        // Explicit resource creation in operational scripts / new SQL only.
-        const resource =
-          /(?:\bCREATE\s+(?:UNIQUE\s+)?(?:DATABASE|SCHEMA|TABLE|INDEX)\s+(?:IF NOT EXISTS\s+)?["`]?([\w.-]+)|(?:^|\s)--name\s+['"]?([\w.-]+))/gi;
-        for (const match of line.matchAll(resource)) add(match[1] ?? match[2]!, offset);
+        if (
+          file.endsWith('.sh') ||
+          (yaml && runBlockIndent !== undefined && indent > runBlockIndent)
+        ) {
+          for (const name of shellNames(code)) add(name, offset);
+        }
       }
       offset += line.length + 1;
     }
