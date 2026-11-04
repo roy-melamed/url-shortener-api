@@ -7,7 +7,93 @@ import { describe, expect, it } from 'vitest';
 import { checkRepository, checkSource } from '../../scripts/check-naming-policy.ts';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
+// Dwight R1/R2: each probe is tested through the helper AND the real CLI.
+const reviewProbes: [string, string, number][] = [
+  ['deploy/quoted.yml', 'services:\n  "URL-27-worker":\n    image: app', 1],
+  ['deploy/quoted.yml', "services:\n  'URL-27-worker':\n    image: app", 1],
+  ['deploy/quoted.yml', 'services:\n  postgres:\n    "container_name": "URL-27-postgres"', 1],
+  ['deploy/quoted.yml', "services:\n  postgres:\n    'container_name': 'URL-27-postgres'", 1],
+  ['deploy/quoted.yml', '\'container_name\': "url8-pg"', 1],
+  ['deploy/quoted.yml', '"container_name": \'url27-backup\'', 1],
+  ['deploy/quoted.yml', '"container_name": "url8"', 0],
+  ['deploy/quoted.yml', "'image': 'api-v2'", 0],
+  ['deploy/quoted.yml', '"container_name": "postgres16" # tracks URL-27', 0],
+  [
+    '.github/workflows/demo.yml',
+    'name: CI\non: push\njobs:\n  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "example --name URL-27"',
+    0,
+  ],
+  ['scripts/demo.sh', 'echo done # example docker run --name URL-27 postgres', 0],
+  ['scripts/demo.sh', 'printf "%s\\n" "Example: CREATE TABLE URL-27"', 0],
+  ['scripts/demo.sh', 'echo "docker run --name URL-27 postgres"', 0],
+  ['scripts/demo.sh', 'docker run --name URL-27 postgres', 1],
+  ['scripts/demo.sh', 'docker run --name "URL-27" postgres # real declaration', 1],
+  ['scripts/demo.sh', "docker run --name 'URL-27' postgres", 1],
+  ['scripts/demo.sh', 'echo done; docker run --name=URL-27 postgres', 1],
+  [
+    '.github/workflows/demo.yml',
+    'name: CI\nsteps:\n  - run: docker run --name "URL-27" postgres',
+    1,
+  ],
+  ['migrations/schema.sql', 'CREATE TABLE "URL-27" (id INT);', 1],
+  ['migrations/schema.sql', 'CREATE UNIQUE INDEX "URL-27-index" ON links(slug);', 1],
+  ['deploy/quoted.yml', '"container_name": "url8-pg" # real declaration', 1],
+  [
+    '.github/workflows/demo.yml',
+    'name: CI\nsteps:\n  - run: |\n      echo "example --name URL-27"\n      docker run --name URL-27 postgres',
+    1,
+  ],
+  [
+    '.github/workflows/demo.yml',
+    'name: CI\nsteps:\n  - run: |\n      echo done # example docker run --name URL-27 postgres\n      printf "%s\\n" "Example: CREATE TABLE URL-27"',
+    0,
+  ],
+  ['.github/workflows/demo.yml', 'name: CI\ndescription: docker run --name URL-27 postgres', 0],
+  [
+    'scripts/demo.sh',
+    "printf '%s\\n' 'Example: CREATE TABLE URL-27'; docker create --name URL-27 postgres",
+    1,
+  ],
+  ['scripts/demo.sh', 'sudo -n docker container run --name "URL-27" postgres', 1],
+  ['scripts/demo.sh', 'docker run --name postgres16 postgres # example --name URL-27', 0],
+  ['migrations/schema.sql', "-- CREATE TABLE URL-27\nSELECT 'Example: CREATE TABLE URL-27';", 0],
+  ['migrations/schema.sql', '/* CREATE TABLE URL-27 */\nCREATE TABLE ipv6_addresses(id INT);', 0],
+  ['migrations/schema.sql', '-- example CREATE TABLE good\nCREATE TABLE "URL-27"(id INT);', 1],
+];
 describe('naming declaration guard', () => {
+  it.each(reviewProbes)('R1/R2 helper: %s %s', (file, body, count) => {
+    expect(checkSource(file, body)).toHaveLength(count);
+  });
+
+  it.each(reviewProbes)('R1/R2 real CLI: %s %s', (file, body, count) => {
+    const tmp = mkdtempSync(join(tmpdir(), 'naming-review-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: tmp });
+      mkdirSync(join(tmp, file, '..'), { recursive: true });
+      writeFileSync(join(tmp, file), body);
+      execFileSync('git', ['add', '.'], { cwd: tmp });
+      const run = spawnSync(
+        process.execPath,
+        ['--experimental-strip-types', join(root, 'scripts/check-naming-policy.ts')],
+        {
+          cwd: tmp,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            HTTP_PROXY: 'http://127.0.0.1:9',
+            HTTPS_PROXY: 'http://127.0.0.1:9',
+          },
+        },
+      );
+      expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(count ? 1 : 0);
+      expect(run.stdout).toContain(`${count} violation(s)`);
+      if (count) expect(run.stderr).toContain(`${file}:`);
+      expect(readFileSync(join(tmp, file), 'utf8')).toBe(body);
+      expect(execFileSync('git', ['diff', '--exit-code'], { cwd: tmp, encoding: 'utf8' })).toBe('');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
   it.each([
     ['infra/resource.ts', 'const r = { bucketName: "URL-27-backups" };'],
     ['infra/resource.ts', 'new Queue(this, "URL-27", {});'],
