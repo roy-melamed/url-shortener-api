@@ -16,6 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "check:naming": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-naming-policy.ts",
+    "check:watcher-offline": "python3 -B tools/jira-evidence-watcher/check_offline.py",
+    "test:watcher-offline": "PYTHONPATH=tools/jira-evidence-watcher/src python3 -B -m unittest discover -s tests/jira-evidence-watcher -v",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
