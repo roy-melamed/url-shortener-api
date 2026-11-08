@@ -8,10 +8,22 @@ from .model import FixtureConfig, OfflineError, classify, parse_issue, require, 
 from .store import FaultPlan, SimulationStore
 
 
+def unique_object(pairs: list[tuple[str, object]]) -> dict:
+    """JSON decoder supplies decoded keys at every depth, before dict creation."""
+    keys = set()
+    for key, _ in pairs:
+        if key in keys:
+            # Never put untrusted keys/values in the exception or its context.
+            raise ValueError("duplicate-json-key")
+        keys.add(key)
+    return dict(pairs)
+
+
 def literal_json(text: str):
     require(type(text) is str and len(text.encode()) <= 2 * 1024 * 1024, "fixture-size-invalid")
     try:
-        return json.loads(text, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        return json.loads(text, object_pairs_hook=unique_object,
+                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
     except (ValueError, RecursionError):
         raise OfflineError("fixture-json-invalid") from None
 

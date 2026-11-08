@@ -41,6 +41,10 @@ PYTHONPATH=tools/jira-evidence-watcher/src python3 -B -m trace \
   Nothing reads the real project config, actor list, environment or credentials.
   A fixture account match is **not proof of human provenance** under shared accounts.
 - `FixtureSource` accepts literal JSON only, not a URL/path/client/callback.
+  JSON decoding rejects duplicate decoded object keys recursively, including
+  escaped-equivalent spellings, before constructing that object's dictionary.
+  Source and scripted-transport JSON share this guard and its fixed redacted
+  `fixture-json-invalid` error; rejected replacement leaves the prior fixture intact.
   `FixtureTransport` reads that source's memory and returns scripted failures;
   it is a fake **page transport**, not notification delivery. `OfflineScanner`
   accepts exactly the concrete fixture transport and virtual clock, not arbitrary
