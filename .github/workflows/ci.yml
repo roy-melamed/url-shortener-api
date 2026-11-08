@@ -22,5 +22,10 @@ jobs:
       - run: npm run lint
       - run: npm run check:naming
       - run: npm run typecheck
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: npm run check:watcher-offline
+      - run: npm run test:watcher-offline
       - run: npm test
       - run: npm run build
