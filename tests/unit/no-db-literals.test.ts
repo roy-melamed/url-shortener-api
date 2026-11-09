@@ -48,7 +48,9 @@ describe('no committed DB endpoint/credential literals (src/ + migrations/)', ()
         }
       }
     }
-    expect(violations, `hardcoded endpoint/credential literals:\n${violations.join('\n')}`).toEqual([]);
+    expect(violations, `hardcoded endpoint/credential literals:\n${violations.join('\n')}`).toEqual(
+      [],
+    );
     expect(files.length).toBeGreaterThan(0); // the scan actually ran
   });
 });
