@@ -42,14 +42,9 @@ export function up(pgm: MigrationBuilder): void {
   });
 
   pgm.createIndex('links', 'slug', { name: 'links_slug_uk', unique: true });
-  pgm.createIndex(
-    'links',
-    [
-      { name: 'user_id' },
-      { name: 'created_at', sort: 'DESC' },
-    ],
-    { name: 'links_user_idx' },
-  );
+  pgm.createIndex('links', [{ name: 'user_id' }, { name: 'created_at', sort: 'DESC' }], {
+    name: 'links_user_idx',
+  });
 }
 
 export function down(pgm: MigrationBuilder): void {

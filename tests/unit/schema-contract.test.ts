@@ -64,7 +64,8 @@ describe('schema contract (design §4.1)', () => {
   });
 
   it('creates the links_slug_uk unique index and links_user_idx index', () => {
-    const byName = (n: string) => schema.indexes.find((i) => (i.options as { name?: string })?.name === n);
+    const byName = (n: string) =>
+      schema.indexes.find((i) => (i.options as { name?: string })?.name === n);
     expect(byName('links_slug_uk')).toBeTruthy();
     expect((byName('links_slug_uk')!.options as { unique?: boolean }).unique).toBe(true);
     expect(byName('links_user_idx')).toBeTruthy();
@@ -111,7 +112,10 @@ describe('schema contract (design §4.1)', () => {
   });
 
   it('analytics tables use composite primary keys (no NULL keys)', () => {
-    expect(schema.tables.get('click_buckets_daily')!.constraints!.primaryKey).toEqual(['link_id', 'day']);
+    expect(schema.tables.get('click_buckets_daily')!.constraints!.primaryKey).toEqual([
+      'link_id',
+      'day',
+    ]);
     expect(schema.tables.get('referrer_buckets_daily')!.constraints!.primaryKey).toEqual([
       'link_id',
       'day',
@@ -122,8 +126,14 @@ describe('schema contract (design §4.1)', () => {
       'day',
       'country_code',
     ]);
-    expect(schema.tables.get('referrer_totals')!.constraints!.primaryKey).toEqual(['link_id', 'referrer_host']);
-    expect(schema.tables.get('country_totals')!.constraints!.primaryKey).toEqual(['link_id', 'country_code']);
+    expect(schema.tables.get('referrer_totals')!.constraints!.primaryKey).toEqual([
+      'link_id',
+      'referrer_host',
+    ]);
+    expect(schema.tables.get('country_totals')!.constraints!.primaryKey).toEqual([
+      'link_id',
+      'country_code',
+    ]);
   });
 
   it('click_event_dedup is bare event_id PK + created_at (§13-c1)', () => {
