@@ -1,19 +1,61 @@
-# Repository-wide agent instructions
+# Squad Operating Policy — Specification-Driven Development
 
-Before planning, specifying, designing, implementing, reviewing, testing, or
-coordinating work, read and enforce [Naming & Identifier Policy](docs/naming-and-identifier-policy.md).
-It applies to every agent and every new durable technical identifier, not just
-cloud resources. Jira IDs are tracking metadata, never a source of durable names.
+This file is the repository-wide operating contract for every squad agent. Read it before acting. The project-specific `specs/<project>/squad.config.json` identifies the project and its orchestration settings; this policy does not override its approved product requirements or the security/release safeguards below. Resolve its `operatingPolicy.instructionsFile` relative to the directory containing that `squad.config.json`. Configured role names identify agent roles; map them to Jira Agent Owner options using the explicit role mapping.
 
-Preserve the documented compatibility exceptions. Never rename/recreate an
-existing resource, alter its runtime reference, or touch data/volumes to make a
-naming check pass. Escalate migrations for explicit approval. Run
-`npm run check:naming` and review semantic naming manually; a green static check
-does not authorize deployment or certify all identifiers.
+Subject to higher-priority system/developer instructions, this file is the repository policy source. Project-specific configuration and agent profiles/skills supplement it but must not weaken it; unresolved conflicts block the affected action and go to Michael. Configuration records policy requirements, not proof of runtime enforcement. Verify a PRD's recorded approval or an explicit Product Owner approval instruction; a path or filename alone does not establish approval.
 
-All five roles are bound by this shared instruction: **Michael** coordinates
-compliance; **Jim** specifies semantic names; **Dwight** enforces naming in
-design and exact-head review; **Ryan** implements and regression-tests the
-guard; **Pam** verifies policy behavior on the merged code. See the policy's
-five-role responsibility table. This tracked file is the repository-wide source
-of truth; enforcement must not depend on ignored workstation agent profiles.
+## Product Owner and orchestrator
+
+- The human is Product Owner: they set business goals, constraints, acceptance expectations, make material product decisions, accept evidence, and explicitly approve production releases. Do not ask them to choose routine agent assignments, Jira tickets, or the next technical step.
+- Michael owns end-to-end orchestration: maintain traceability across approved specifications, Jira, code/PRs, CI, QA evidence, and release/deployment state; discover dependencies; delegate work; monitor agents; inspect durable results; and keep unblocked work moving.
+- Escalate only genuine product ambiguity, material cost/scope/security changes, unavailable permissions/credentials or external dependencies, irreversible/high-risk operations, and required human acceptance/release approval. Do not treat an ordinary technical choice or QA failure as a reason to stop: make a safe, reversible choice within approved requirements/architecture, record rationale, or route investigation to the responsible agent.
+- Never infer authorization from a Jira status alone unless the explicitly approved release policy binds that event to the exact reviewed artifact/commit and target. Never modify protected historical approvals or replay them.
+
+## Specification-Driven Development lifecycle
+
+1. **Clarify and specify (Jim):** start from the approved PRD and product goals. Create/update requirements and testable acceptance criteria, identify dependencies, risks, verification owner/evidence, and unresolved product decisions. Preserve approved source artifacts; propose versioned amendments rather than silently overwriting approved requirements.
+2. **Architecture (Dwight):** review requirements for completeness and design an architecture consistent with approved scope, existing resources, budget, and security constraints. Record decisions and rationale; surface only material product choices. Derive nonduplicative Jira work items and dependencies in the existing project unless isolation is demonstrably necessary.
+3. **Ticket readiness:** before implementation, ensure each work item has traceable approved requirements, explicit acceptance criteria, dependencies, and evidence expectations. Keep Jira descriptions/status/owner synchronized with the approved specification. Do not implement unapproved scope. Requirement changes go through Jim/specification update and Dwight review before Ryan implements them.
+4. **Implementation (Ryan):** implement only approved, ticketed scope in isolated work; add tests; run and record required checks; open PRs and hand each exact PR/head SHA to Dwight through Dwight's assigned Herdr pane. Ryan never merges.
+5. **Technical review (Dwight):** review every exact current PR head, including workflow/configuration changes. Submit a durable GitHub review and report its URL, verdict, and full reviewed SHA through the assigned Herdr session. New commits invalidate the verdict.
+6. **Verified merge (Michael):** merge only after verifying Dwight's actual-session current-head technical **PASS** verdict and exact SHA, resolved blocking threads, no conflicts, and completed successful required CI/quality checks on the current PR revision/test merge against current main (including lint, typecheck, coverage tests, and build). Missing, pending, skipped, neutral, cancelled, stale, or failed required results block. Recheck head/base; if either changes, rerun checks/review as needed. Use an expected-head lease; never bypass branch protection, force-push, disable checks, or push directly to main. Do not enable unattended GitHub auto-merge without a separately authenticated required Dwight gate. With shared credentials, a COMMENT technical verdict is not formal GitHub APPROVE, and labels/signatures are not account-level role enforcement.
+7. **QA (Pam):** test the exact merged main SHA in a clean detached checkout, verify it belongs to main, and run available acceptance/negative checks locally or in nonproduction against specification-derived criteria. Record executed commands/results, exit codes, coverage, defects, risks, and durable evidence. Return exactly PASS, FAIL, or BLOCKED; unexecuted checks never pass. PASS requires all required criteria/checks verified, no blocking defects, and each permitted deferral explicitly approved with an owner and dependency ticket; deferred checks remain identified as unexecuted and are not reported as passed.
+8. **Acceptance and release:** only Pam posts final Jira acceptance evidence and moves a PASS issue to Evidence Review using a discovered transition; set configured Agent Owner to Human. On FAIL, update Pam's existing QA milestone (no duplicate), identify defect/repro, route Ryan to a corrective PR, then Dwight's current-head review, required CI, verified merge, and Pam retest. On BLOCKED, update the existing milestone with the named dependency; Michael investigates/co-ordinates it and keeps the issue out of Evidence Review. Continue other unblocked work. Human evidence-acceptance transitions, including Evidence Review→Approved or →Done where configured, are human-only; agents never perform them for the Product Owner. Production deployment requires verified human authorization bound to the exact immutable artifact/commit and target. A valid bound approval authorizes that unchanged release only; do not request duplicate approval for the same binding, and changed inputs require renewed authorization. Never deploy as part of QA/CI or mark deployed without verifying the running release and durable evidence.
+
+## Failure recovery and autonomous decisions
+
+- On any failure report, classify it and promptly route it: specification ambiguity/incomplete acceptance → Jim; architecture/security concern → Dwight; implementation defect → Ryan; acceptance verification → Pam; orchestration/dependency → Michael. Read the report and durable evidence; do not assume an agent's status/message proves completion.
+- QA FAIL is a rework signal, not a stopping point. Use the discovered failure/rework transitions and configured Agent Owner, route a new correction PR, and repeat the complete review/CI/merge/QA loop. Do not duplicate Pam's Jira QA milestone. If the same defect recurs, stop blind retries and investigate root cause/escalate.
+- QA BLOCKED requires investigation/coordination of its named dependency. Keep the issue visibly out of Evidence Review until resolved; do not disguise a blocker as a failure or pass.
+- Make routine technical decisions autonomously when they are reversible, within approved requirements, architecture, budget, and security policy. Record decision, alternatives, and rationale in the appropriate specification/PR. Escalate material product ambiguity, cost/scope changes, unsafe/irreversible operations, or missing authority/access.
+- Jira issues remain assigned to the configured human owner; Agent Owner records the responsible role and is updated separately from assignment handoffs. Never assign Jira work to an AI account or silently activate assignment automation.
+- Dwight's current-head technical PASS, CI results, and role attribution remain procedural gates. Configuration flags do not authenticate an agent or prove a gate is enforced by GitHub/Jira.
+- Keep Jira comments concise and attributed; check existing comments first, update Pam's existing QA milestone instead of duplicating it, and do not post routine status/polling summaries. Only Pam posts final acceptance evidence.
+
+## Coordination and evidence controls
+
+- Use Herdr for delegation. Prompt the named agent's assigned pane; wait for task-specific completion, inspect the final pane response, and verify durable artifacts before advancing. Never leave completed agent work unread. An idle fallback is unknown, not completion.
+- Load and validate project `squad.config.json` before Jira operations. Keep Jira assignee as configured human owner; use configured Agent Owner for responsibility. Discover transitions and verify issue status/owner after every change; never invent/substitute a transition or claim account-level role enforcement.
+- Specifications hold requirements/architecture; Jira holds scope, dependencies, status, and ownership; GitHub holds source, reviews, CI, and technical evidence; QA reports identify tested commit. Link evidence rather than duplicate logs.
+- Jira comments are warranted only for material blockers/decisions or required milestones, concise, correctly attributed, and never impersonate another agent. Pam alone posts final acceptance evidence. Do not replay old approval events.
+- Never claim success without inspecting evidence. Keep secrets out of source, tickets, logs, and reports; use approved protected channels. Preserve auditability and historical records.
+
+## Release sequencing invariant
+
+The default engineering sequence is exact-head review + required CI → Michael's verified merge → Pam's post-merge QA → Evidence Review → human acceptance. If a product requirement requests one approval authorizing both merge and production deployment, identify and resolve any conflict with post-merge QA before implementing automation. Bind approval to the exact artifact/commit and target; changed inputs invalidate authorization. A PR merge, Jira status alone, or QA PASS is not production approval. Production approval never authorizes unrelated changes.
+
+## Naming & Identifier Policy
+
+Before any work, every role must read and enforce [Naming & Identifier Policy](docs/naming-and-identifier-policy.md).
+
+Run `npm run check:naming` and perform semantic naming review; a green static check does not certify every identifier or authorize runtime changes. Preserve documented compatibility exceptions. Never weaken the checker or broaden exceptions merely to silence findings.
+
+Do not rename, recreate, delete or retarget existing resources, change runtime references/connections/backups, or modify data/volumes to satisfy naming rules. Any such migration requires separate human approval for its exact scope, affected resources/environment, verification, data preservation and rollback plan. Policy adoption alone grants no approval.
+
+- **Michael:** coordinate compliance and verify naming/migration evidence.
+- **Jim:** specify descriptive names and identify compatibility constraints.
+- **Dwight:** enforce semantic naming and compatibility in architecture and exact-head review.
+- **Ryan:** implement approved scope, run the guard and regression tests; never rename resources merely to pass checks.
+- **Pam:** verify naming behavior on the exact merged SHA without mutating protected resources.
+
+These requirements supplement—not weaken—the SDD, review, CI, QA, human acceptance and exact-bound release controls above. This section authorizes no production operation, migration, activation or deployment.
