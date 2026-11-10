@@ -1,4 +1,37 @@
 {
+  "operatingPolicy": {
+    "instructionsFile": "../../AGENTS.md",
+    "methodology": "specification-driven-development",
+    "productOwner": "human",
+    "orchestrator": "michael",
+    "lifecycle": [
+      "requirements-and-acceptance",
+      "architecture-and-ticket-dependencies",
+      "approved-specification-and-ticket-readiness",
+      "implementation",
+      "exact-head-technical-review",
+      "verified-merge",
+      "merged-sha-qa",
+      "human-evidence-acceptance",
+      "explicit-release-approval-and-verified-deployment"
+    ],
+    "failureRouting": {
+      "requirements": "jim",
+      "architecture-security": "dwight",
+      "implementation": "ryan",
+      "acceptance": "pam",
+      "dependencies-and-orchestration": "michael"
+    },
+    "roleMapping": {
+      "implementationAgent": "ryan",
+      "implementationAgentOwnerOption": "developer",
+      "instructionsPathBase": "configuration-file-directory",
+      "enforcement": "agent-policy-not-account-level"
+    },
+    "autonomousRecovery": true,
+    "preserveHistoricalApprovals": true,
+    "productionRequiresExactArtifactAndTargetApproval": true
+  },
   "jira": {
     "site": "https://melamed.atlassian.net",
     "projectKey": "URL",
