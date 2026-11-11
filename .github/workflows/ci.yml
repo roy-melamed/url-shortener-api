@@ -10,6 +10,17 @@ jobs:
     name: CI / quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      rate-limit-postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: rate_limit_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '127.0.0.1:5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rate_limit_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v6
         with:
@@ -28,4 +39,6 @@ jobs:
       - run: npm run check:watcher-offline
       - run: npm run test:watcher-offline
       - run: npm test
+        env:
+          TEST_RATE_LIMIT_DATABASE_URL: postgres://postgres@127.0.0.1:5432/rate_limit_test
       - run: npm run build
