@@ -29,3 +29,4 @@ jobs:
       - run: npm run test:watcher-offline
       - run: npm test
       - run: npm run build
+      - run: npm run cdk:synth
