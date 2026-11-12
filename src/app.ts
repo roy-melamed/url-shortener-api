@@ -26,6 +26,8 @@ import Fastify, {
 import type { AppConfig } from './platform/config.ts';
 import { createLogger, type AppLogger } from './platform/logger.ts';
 import { ulid } from './platform/ulid.ts';
+import { createRateLimitHook, type RateLimiter } from './abuse/rate-limit.ts';
+import type { FastifyRequest } from 'fastify';
 import {
   AppError,
   buildErrorEnvelope,
@@ -37,6 +39,11 @@ export interface BuildAppOptions {
   config: AppConfig;
   /** Pre-built logger (tests / custom destinations). Defaults to config-driven. */
   logger?: AppLogger;
+  /** Auth integration seam; only trusted user:/apikey: subjects, never client headers. */
+  rateLimit?: {
+    limiter: RateLimiter;
+    authenticatedSubject: (request: FastifyRequest) => string | null;
+  };
 }
 
 interface MappedError {
@@ -95,7 +102,7 @@ function mapError(error: unknown): MappedError {
  * @param options Configuration and optional logger.
  * @returns A ready-to-wire {@link FastifyInstance} (not yet `listen`/`ready`).
  */
-export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
+export function buildApp({ config, logger, rateLimit }: BuildAppOptions): FastifyInstance {
   // Typed as FastifyBaseLogger so the instance keeps Fastify's default logger
   // generic (the pino AppLogger is structurally assignable to it).
   const baseLogger: FastifyBaseLogger = logger ?? createLogger(config);
@@ -154,6 +161,13 @@ export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
         ),
       );
   });
+
+  if (rateLimit) {
+    app.addHook(
+      'preHandler',
+      createRateLimitHook(rateLimit.limiter, rateLimit.authenticatedSubject),
+    );
+  }
 
   // Liveness — no dependency checks (FR-10.2, design §3.3/§8.5). Readiness
   // (`/readyz`, DB `SELECT 1`) lands with the DB pool ticket.
