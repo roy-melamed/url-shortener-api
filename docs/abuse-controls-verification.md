@@ -159,3 +159,61 @@ No service/production deployment, auth feature, link CRUD, real vendor, threshol
 approval, maintenance registration, watcher/Jira automation, shared policy/spec
 or existing resource/connection/volume identifier change is included. Live CAPTCHA
 verification remains the explicit vendor dependency, not a claim of this PR.
+
+## PR #19 rework — resolved-route admission scope (2026-11-12)
+
+[Dwight's submitted FAIL review](https://github.com/roy-melamed/url-shortener-api/pull/19#pullrequestreview-5872460422)
+reviewed exact head `2004f1bab8a6af2c2fb5be3e67007fead2b9ff34`. Its green
+CI does not waive the blocking P1: Fastify resolves encoded static route segments,
+but the hook checked the raw URL prefix. An authenticated `/%76%31/probe` or
+`/v%31/probe` could reach the registered `/v1/probe` handler without admission.
+
+The before-fix local regression run on 2026-11-11 exited **1**: two cases returned
+200 rather than 429 (`/%76%31/probe`, with and without a query); five other HTTP
+tests passed. Dwight's independent reproduction additionally showed `/v%31/probe`
+returning 200 with zero limiter calls. These are synthetic application injections,
+not evidence of exploitation of a deployed system.
+
+Inspected the interrupted working correction before editing. It scopes using
+`request.routeOptions.url`, the identity of the route Fastify actually resolved,
+not raw-prefix interpretation or a second ad-hoc URL decoder. Missing route scope
+and health/redirect/`/v10` remain outside this hook. Existing trusted resolver,
+canonical subjects, transaction/math, CAPTCHA/provider and maintenance boundaries
+are unchanged. Initial targeted validation of the three pending regressions
+passed **148 tests**, exit **0**.
+
+Retained all three requested aliases and added the second prefix spelling from
+the actual review. All four cases now assert 429 `RATE_LIMITED`, all required
+retry/rate headers, exactly one limiter call with the trusted subject, and zero
+handler calls:
+
+- `/%76%31/probe`
+- `/%76%31/probe?fixture=1`
+- `/v1/%70robe`
+- `/v%31/probe`
+
+After strengthening tests, targeted tests ran first and passed; then all complete
+checks were rerun. Commands and actual exits in the same isolated worktree:
+
+| Command                                                                                                        | Exit/result                                                   |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `npx vitest run tests/unit/rate-limit.test.ts tests/unit/captcha.test.ts tests/integration/abuse-http.test.ts` | 0; **149 passed**, 3 files                                    |
+| `npm ci`                                                                                                       | 0                                                             |
+| `npm run format:check`                                                                                         | 0                                                             |
+| `npm run lint`                                                                                                 | 0                                                             |
+| `npm run check:naming`                                                                                         | 0                                                             |
+| `npm run typecheck`                                                                                            | 0                                                             |
+| `npm run test:coverage`                                                                                        | 0; **2,495 passed / 15 skipped**, 25 files passed / 2 skipped |
+| `npm run check:watcher-offline`                                                                                | 0                                                             |
+| `npm run test:watcher-offline`                                                                                 | 0; **58 passed**                                              |
+| `npm run build`                                                                                                | 0                                                             |
+| `git diff --check`                                                                                             | 0                                                             |
+
+Local PostgreSQL access remains unavailable; the five SQL tests remain explicitly
+unexecuted locally, alongside ten older DB tests. The PR description links fresh
+CI for the corrected head and records whether those five tests actually execute.
+This section supersedes earlier local counts only for this rework; historical
+head results above remain historical. No original test, quality gate, vendor,
+auth/creation contract, workflow or configuration was weakened or changed to fix
+the bypass. New code commits invalidate prior review; exact-head re-review and
+actual successful current CI are required. Ryan does not merge or claim QA PASS.

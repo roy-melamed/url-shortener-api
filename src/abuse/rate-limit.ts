@@ -155,8 +155,10 @@ export function createRateLimitHook(
   authenticatedSubject: (request: FastifyRequest) => string | null,
 ) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    const pathname = request.url.split('?')[0] ?? '';
-    if (pathname !== '/v1' && !pathname.startsWith('/v1/')) return;
+    // Fastify decodes aliases while routing. Raw URL prefix checks would let
+    // /%76%31/... reach the same API handler without admission enforcement.
+    const route = request.routeOptions.url;
+    if (!route || (route !== '/v1' && !route.startsWith('/v1/'))) return;
     const subject = authenticatedSubject(request);
     if (subject === null) return; // authentication owns 401; no IP/anonymous counter.
     const result = await limiter.consume(subject);

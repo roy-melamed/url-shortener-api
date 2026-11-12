@@ -8,6 +8,34 @@ import { enforceCaptcha, type CaptchaProvider } from '../../src/abuse/captcha.ts
 const subject = 'apikey:00000000-0000-4000-8000-000000000001';
 const config = loadConfig({ DATABASE_URL: 'fixture-only', LOG_LEVEL: 'silent' });
 describe('HTTP seam only (not URL-11 implementation)', () => {
+  it.each(['/%76%31/probe', '/%76%31/probe?fixture=1', '/v1/%70robe', '/v%31/probe'])(
+    'cannot bypass resolved API-route limiting with encoded alias %s',
+    async (url) => {
+      const consume = vi.fn(async () =>
+        decideRateLimit({ elapsedMs: 0, previousCount: 0, currentCount: 100 }),
+      );
+      const handler = vi.fn(async () => ({ stub: true }));
+      const app = buildApp({
+        config,
+        rateLimit: { limiter: { consume }, authenticatedSubject: () => subject },
+      });
+      app.get('/v1/probe', handler);
+      try {
+        const result = await app.inject(url);
+        expect(result.statusCode).toBe(429);
+        expect(result.json().error.code).toBe('RATE_LIMITED');
+        expect(result.headers['ratelimit-limit']).toBe('100');
+        expect(result.headers['ratelimit-remaining']).toBe('0');
+        expect(result.headers['ratelimit-reset']).toBe('120');
+        expect(result.headers['retry-after']).toBe('61');
+        expect(consume).toHaveBeenCalledOnce();
+        expect(consume).toHaveBeenCalledWith(subject);
+        expect(handler).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    },
+  );
   it('creation-contract stub challenges only suspicious inputs and never writes on rejection', async () => {
     let suspicious = false;
     const verify = vi.fn(async (token: string) => token === 'fixture-valid');
