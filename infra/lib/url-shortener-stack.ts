@@ -52,6 +52,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { MAINTENANCE_JOBS } from '../../src/functions/maintenance.ts';
 import { Prerequisites } from './prerequisites.ts';
+import { ServiceAlarms } from './service-alarms.ts';
 
 /** Design §3.7 job cadences — rate-limit hygiene runs hourly, the rest daily. */
 const HOURLY_JOBS = new Set<string>(['rate-limit-hygiene']);
@@ -335,6 +336,23 @@ export class UrlShortenerStack extends Stack {
       defaultIntegration: apiIntegration,
       defaultDomainMapping: { domainName: sharedDomain },
       description: 'URL Shortener API (design 3.1) — no CDN/edge in front (AD-1/AD-2/AD-7)',
+    });
+
+    // Historical AWS path: per-route readiness/redirect metrics must actually
+    // be published before the native CloudWatch alarms can evaluate them.
+    const defaultStage = api.defaultStage?.node.defaultChild as apigwv2.CfnStage;
+    defaultStage.defaultRouteSettings = { detailedMetricsEnabled: true };
+    const serviceAlarms = new ServiceAlarms(this, 'ServiceAlarms', {
+      api,
+      clickQueue,
+      clickDlq,
+      maintenanceFunction: maintenanceFn,
+      proxyName: dbProxy.ref,
+    });
+    new CfnOutput(this, 'AlarmNotificationTopicArn', {
+      value: serviceAlarms.notificationTopic.topicArn,
+      description:
+        'Owner-managed notification subscriptions required; delivery verification is blocked until configured in authorized staging.',
     });
 
     // Static paths first: both the gateway and Fastify's router give static

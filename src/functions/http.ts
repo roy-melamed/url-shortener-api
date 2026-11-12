@@ -21,7 +21,7 @@
  */
 import awsLambdaFastify, { type PromiseHandler } from 'aws-lambda-fastify';
 import { loadConfig } from '../platform/config.ts';
-import { buildApp } from '../app.ts';
+import { startTelemetry } from '../platform/telemetry.ts';
 
 /**
  * Build the API Gateway (HTTP API v2) → Fastify handler.
@@ -31,13 +31,17 @@ import { buildApp } from '../app.ts';
  *   `DATABASE_URL`/secret ARNs from the stack.
  */
 export function createHttpHandler(): PromiseHandler {
-  const app = buildApp({ config: loadConfig() });
-  const bridge = awsLambdaFastify(app);
-  // Warm routing/table once per cold start (URL-7 semantics, preserved).
-  const ready = app.ready();
+  const config = loadConfig();
+  startTelemetry(config);
+  const ready = import('../app.ts').then(async ({ buildApp }) => {
+    const app = buildApp({ config });
+    const bridge = awsLambdaFastify(app);
+    await app.ready();
+    return bridge;
+  });
 
   return async (event, context) => {
-    await ready;
+    const bridge = await ready;
     return bridge(event, context);
   };
 }

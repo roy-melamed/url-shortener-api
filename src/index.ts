@@ -9,9 +9,12 @@
  */
 import 'dotenv/config';
 import { loadConfig } from './platform/config.ts';
-import { buildApp } from './app.ts';
+import { startTelemetry } from './platform/telemetry.ts';
 
 const config = loadConfig();
+const telemetry = startTelemetry(config);
+// Register instrumentation before loading Fastify, HTTP, pg or feature adapters.
+const { buildApp } = await import('./app.ts');
 const app = buildApp({ config });
 
 let shuttingDown = false;
@@ -22,6 +25,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   app.log.info({ signal }, 'shutting down');
   try {
     await app.close();
+    await telemetry.shutdown();
     process.exit(0);
   } catch (error) {
     app.log.error({ err: error }, 'error during shutdown');
