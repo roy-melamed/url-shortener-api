@@ -30,7 +30,16 @@
     },
     "autonomousRecovery": true,
     "preserveHistoricalApprovals": true,
-    "productionRequiresExactArtifactAndTargetApproval": true
+    "productionRequiresExactArtifactAndTargetApproval": true,
+    "modelSelection": {
+      "authorizedProviders": [
+        "openai",
+        "opencode-go"
+      ],
+      "defaultBackupReviewerModel": "openai/gpt-6.1-sol",
+      "requireExplicitProductOwnerApprovalForProvidersOutsidePools": true,
+      "enforcement": "agent-policy-not-account-level"
+    }
   },
   "jira": {
     "site": "https://melamed.atlassian.net",
