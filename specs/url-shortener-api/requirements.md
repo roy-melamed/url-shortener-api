@@ -21,7 +21,7 @@ This document translates the approved PRD into clear, complete, testable softwar
 - **Requirement IDs are stable.** Functional requirements retain the PRD's IDs (`FR-1.1` … `FR-10.6`); non-functional requirements are `NFR-1` … `NFR-9`; PRD acceptance criteria are `AC-01` … `AC-13`. IDs will not be renumbered in later revisions.
 - **Acceptance criteria use EARS-style wording** where practical (When / If / While … shall).
 - **Decision markers:** earlier revisions used `[PENDING Qn]`, `[PENDING A-n]` and `[AM-n]` to flag unresolved items. All such markers were **cleared on 2026-10-13** when this artifact was reconciled against `design.md` §11 (resolution log AD-1…AD-15, human decision-maker, 2026-10-12); each conversion is recorded in §8.0 with its source AD-ref. **`[OPEN §8.5]`** marks a residual item that still awaits a human.
-- **Still-open items live in §8.1 (Q5 provider vendor) and §8.5** and remain visible until a human resolves them.
+- **Historical/deferred items remain visible in §8.1 and §8.5.** Q5 CAPTCHA is explicitly deferred by PO-2026-11-15, not an active MVP blocker.
 - No requirement below invents scope beyond the PRD. Where the PRD is silent or contradictory, the gap is recorded in §8 rather than resolved.
 
 ## 3. Scope
@@ -204,16 +204,16 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 
 | ID | Requirement |
 |---|---|
-| FR-9.1 | The application **shall** be publicly deployed on the existing Oracle Cloud VM/infrastructure selected by the PO, reusing what exists and avoiding new infrastructure/resource creation. Runtime/container/process choices and health/restart behavior remain architecture-dependent and are not prescribed here. |
-| FR-9.2 | Persistent application data **shall** use existing approved data resources where verified, with no destructive recreation or modification without separate human approval; secrets and endpoint/credential literals shall not be committed. AD-17 backup obligations remain active: daily encrypted off-VM backup, 7-day retention, globals plus both approved databases, least-privilege credentials, and restore testing. Exact resource availability and operational particulars require inventory; no new backup resource is implied. |
-| FR-9.3 | The solution **shall** remain runnable locally for development from the same requirements-defined product surface. No cloud-provider-specific implementation detail is added by this amendment. |
+| FR-9.1 | The application **shall** be publicly deployed on the existing Oracle Cloud VM/infrastructure selected by the PO, reusing what exists and avoiding new infrastructure/resource creation. Where the approved existing containerized runtime is used, configured restart behavior and observable health checks shall remain active requirements; inventory uncertainty blocks deployment and does not weaken them. |
+| FR-9.2 | Persistent application data **shall** use the existing PostgreSQL `url8-pg` container and persistent volume where verified, reused as-is. The DB shall be reachable only over the private application-to-DB network and shall not be publicly exposed. The DB container, configuration, and volume shall not be modified or recreated without separate explicit human approval. Endpoints, credentials, and secrets shall not be committed. AD-17 backup obligations remain active: daily encrypted off-VM backup, 7-day retention, globals plus both approved databases, least-privilege credentials, and restore testing. Exact resource availability requires inventory; no new backup resource is implied. |
+| FR-9.3 | The solution **shall** remain runnable locally for development from the same requirements-defined product surface. Deployment shall use the approved existing containerized Oracle runtime where verified, with no unapproved AWS or new-resource implementation detail added by this amendment. |
 
 **Acceptance criteria (EARS):**
 
-- **AC-FR-9.1:** Before deployment, evidence shall identify the existing Oracle target and exact release artifact mapping. No new infrastructure/resource creation or unapproved destructive change shall occur.
-- **AC-FR-9.2:** Before deployment, evidence shall verify the existing data/resource mapping, approved network boundary, and absence of committed endpoint/credential literals. Unknown inventory is a blocker, not a pass.
+- **AC-FR-9.1:** Before deployment, evidence shall identify the existing Oracle target and exact release artifact mapping. The approved existing containerized runtime shall retain configured restart behavior and observable health-check status. No new infrastructure/resource creation shall occur; unknown inventory blocks deployment.
+- **AC-FR-9.2:** Before deployment, evidence shall verify the existing PostgreSQL `url8-pg` container and persistent volume mapping, private application-to-DB network, no public DB exposure, absence of committed endpoint/credential literals, and that no DB container/config/volume modification or recreation occurred without separate explicit approval. Unknown inventory is a blocker, not a pass.
 - **AC-FR-9.3:** A developer shall be able to run the application locally against a local PostgreSQL instance.
-- **AC-FR-9.4:** Before deployment, the approved backup set shall be covered by daily encrypted off-VM backups with 7-day retention, globals plus both approved databases, least-privilege credentials, and restore-test evidence. If the required existing backup resource is unavailable, this criterion is BLOCKED pending Roy's conflict decision; no unexecuted backup or restore check passes.
+- **AC-FR-9.4:** Before deployment, the approved backup set shall be covered by daily encrypted off-VM backups with 7-day retention, globals plus both approved databases, least-privilege credentials, and restore-test evidence. If the required existing backup resource is unavailable, this criterion is BLOCKED pending Roy's conflict decision; no unexecuted backup or restore check passes. URL-27's completed implementation/evidence remains historical evidence and is not downgraded.
 
 ### FR-10: Observability
 
@@ -317,15 +317,15 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | **AD-16** | **Deployment-platform migration (NEW)** | **Human-approved 2026-11-02:** personal MVP runs on **one confirmed Oracle Cloud Ubuntu ARM64 VM** via **Docker Compose**, reusing the **existing PostgreSQL 16 container `url8-pg`** and its **persistent Docker volume**. Security conditions: DB **private-only** (not publicly exposed, private app-to-DB Docker network), **restart policies**, **health checks**, **persistent storage**, **automated backups**, **no committed secrets**, **no new AWS resources**, **no deletion of AWS resources/databases**. **Availability:** HA, Multi-AZ, and the former **99.9%** redirect-path target are **explicitly NOT required**; NFR-3/AC-NFR-3 revised accordingly. Async click aggregation and all product acceptance criteria are preserved unchanged. **Out of scope, untouched:** the existing **AWS RDS `database-1`** — data/dependency review and any migration remain separate, unmade decisions. Open follow-ons: backup cadence/retention/RPO/RTO, click-event transport, TLS posture, observability tooling re-selection (**§8.5 #7–#10**). | **Michael (human), 2026-11-02** | FR-9.1–9.3, AC-FR-9.1/9.2, NFR-3, NFR-7, AC-NFR-3; supersedes A1/AD-11, A2/AD-12 |
 | **AD-17** | **Operational-choices addendum to AD-16 (NEW)** | **Human-approved 2026-11-02 (same platform as AD-16 — nothing herein re-opens AD-16 or A1/A2/AD-11/12, all preserved):** (1) **Reuse `url8-pg` and its existing persistent volume without modifying or recreating them absent separate approval.** (2) **Async click aggregation via Redis Streams**, preserving **eventId dedup, retries/DLQ behavior, and no per-click synchronous DB writes**; redelivery horizon must remain **shorter than the 7-day eventId-dedup retention** — stated as an invariant; **the specific horizon value (a proposed 48h) is not human-selected and remains open (§8.5 #8b)** · **[AMENDED same-day 2026-11-02 by explicit human decision: the horizon is now RESOLVED — the owner selected the maximum redelivery/replay horizon = 48 hours; configured retention must be ≤48h and remain strictly below the existing 7-day eventId-dedup retention; the formerly-open leg is closed, retained in §8.5 #8 for traceability; no exact value below 48h was specified and Redis persistence settings remain design-level]**. (3) **Backups: daily, encrypted, off-VM to OCI Object Storage — 7-day retention, PostgreSQL globals + both databases (`urlshortener`, `url8_acceptance`), restore testing required, least-privilege backup credentials**; particulars open (§8.5 #7). (4) **Protected secrets outside Git** — mechanism open (§8.5 #11). (5) **Caddy as reverse proxy when a custom domain exists** — none yet; temporary access/SSH-source plan open (§8.5 #12). (6) **Existing e-mail provider** for verification e-mail (FR-1.2 transport; local dev MailHog unchanged). (7) **GitHub Actions with manual deployment approval** — registry/runner/deploy credentials open (§8.5 #13). **Safe 5432 private-only firewall/network plan** and **any modification of `url8-pg` (e.g., restart policy) require separate approval** (§8.5 #14). **AWS RDS `database-1` remains untouched pending separate data/dependency review.** | **Michael (human), 2026-11-02** | FR-9.2, AC-FR-9.2/9.4, AC-NFR-3, §8.3 (transport), §4 Platform/Analytics rows |
 
-*(Q5 is only **partly** resolved — trigger mode via AD-3; the provider vendor remains open: §8.1 and §8.5.)*
+*(Q5 CAPTCHA is retained as a historical record and explicitly deferred by PO-2026-11-15; it is not an active MVP shipping dependency.)*
 
-### 8.1 Open Questions (from PRD §10 — only Q5 remains, narrowed)
+### 8.1 Historical open questions and PO deferrals
 
 | # | Question | Status / impact | Dependent requirements |
 |---|---|---|---|
-| Q5 | **CAPTCHA provider & trigger:** Which CAPTCHA, and is it required on every create or only when suspicious? | **Trigger RESOLVED** — pluggable `CaptchaProvider`, mode `suspicious` (design §11 AD-3). **Provider vendor still OPEN** (design §10.8/§11.2, owner Michael) | FR-2.7, AC-FR-2.7, AC-11 |
+| Q5 | **CAPTCHA provider & trigger** | **Deferred by the direct Product Owner instruction dated 2026-11-15.** Historical trigger/vendor decisions remain traceability only; no provider, interface, mode, live adapter, or active shipping obligation is authorized for this MVP. | Historical FR-2.7, AC-FR-2.7, AC-11 |
 
-*Q1–Q4 and Q6–Q10 are resolved — see §8.0.*
+*Q1–Q4 and Q6–Q10 are resolved — see §8.0. Q5 is retained as a historical record and explicitly deferred for this MVP.*
 
 ### 8.2 Assumptions (A1–A7) — all confirmed
 
@@ -333,11 +333,11 @@ All seven assumptions are **confirmed or moot** per design §11: A1 → AD-11, A
 
 ### 8.3 Requirement → open decision dependency index
 
-*All former [PENDING …] dependencies were cleared by the 2026-10-13 reconciliation (see §8.0). Only these remain:*
+*All former [PENDING …] dependencies were cleared by the 2026-10-13 reconciliation (see §8.0). The following remain as requirements or historical/deferred records:*
 
 | Requirement | Depends on (still open) |
 |---|---|
-| FR-2.7 (live CAPTCHA challenge) | Q5 provider vendor — design §10.8 / §11.2 |
+| FR-2.7 / AC-FR-2.7 / AC-11 CAPTCHA leg | **Deferred historical dependency** per PO-2026-11-15; no live provider or replacement is an active MVP blocker or shipping obligation |
 | FR-5.1 (country-breakdown provisioning) | GeoIP database vendor/license — design §10.9 / §11.2 (requirement text final; AD-2 Option B stands) |
 | FR-3.1 / AC-FR-3.1 (delete vs disable wording) | design §10.4 / §11.2 (Michael) |
 | AC-FR-3.1 / AC-FR-2.1 (delete & create resolution immediacy) | design escalation **E1** (§13.3): 60s deleted-as-active, 30s negative-cache — open; edit-propagation ≤60s already AD-1-accepted, confirm as intended |
@@ -361,7 +361,7 @@ These were identified while writing this specification and are **not** part of t
 | # | Item | Source | Affects | Owner |
 |---|---|---|---|---|
 | 1 | ⚠ **AM-1 / AC-03 charset conflict:** design §11 AD-8 (strict `[a-zA-Z0-9]`, 2026-10-12) contradicts the earlier human ruling recorded in this artifact on 2026-10-11 ("allow hyphen", `[a-zA-Z0-9-]`), which was lost when requirements.md was externally reverted (mtime 2026-10-12 16:08). AD-8 is applied here as the later recorded decision. Under AD-8, PRD AC-3's example slug `my-campaign` (contains `-`) is rejected — the PRD-internal contradiction persists. | design §11 AD-8 vs. prior §8.0 record; PRD FR-2.3 vs. PRD AC-3 | FR-2.3, FR-2.4, AC-03 | Human (Michael) |
-| 2 | **CAPTCHA provider vendor** (Q5's vendor half) — the `CaptchaProvider` interface and `suspicious` mode ship regardless, but no vendor is named | design §10.8, §11.2 | FR-2.7 live challenge | Human (Michael) |
+| 2 | **CAPTCHA provider/vendor** — historical dependency retained for traceability, but the provider, interface, suspicious mode, and live adapter are **deferred and not active MVP shipping obligations** under the direct PO instruction dated 2026-11-15 | design §10.8, §11.2; PO amendment | Historical FR-2.7/AC-FR-2.7/AC-11 | Deferred; no active blocker |
 | 3 | **GeoIP database vendor/license** for AD-2 Option B (layer/local-file provisioning only) | design §10.9, §11.2 | FR-5.1 country breakdown provisioning | Human/Developer |
 | 4 | **FR-3.1 "delete/disable" wording** — delete-only vs reversible disable (endpoint already satisfies AC-FR-3.1; a reversible disable would be additive) | design §10.4, §11.2 | FR-3.1, AC-FR-3.1, AC-08 | Human (Michael) |
 | 5 | **AM-2** — PRD header says "Approved", footer says "draft" | §8.4; design §11.2 | Documentation only | Human |

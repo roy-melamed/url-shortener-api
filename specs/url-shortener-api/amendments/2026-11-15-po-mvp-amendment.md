@@ -5,6 +5,8 @@
 **Base:** `origin/main` at `01962f8a25cd141d99c669cece4811b8a059ce0b`
 **Relationship to PRD:** This is a versioned amendment to the immutable approved `PRD.md` (dated 2026-10-08). It does not overwrite, reinterpret, or alter that historical document. The working requirements artifact records the amended active MVP scope while preserving superseded requirements and rationale here.
 
+**Product Owner source/provenance:** Direct Product Owner instruction to Michael in the 2026-11-15 conversation, transcribed here as the source for this amendment: demonstrate SDD/autonomous orchestration, RAG/vector search, LLM integrations, evaluations, and a functional REST URL-shortener API; deploy publicly on the existing Oracle Cloud VM/infrastructure with reuse/no new resources; retain email/password, JWT, and API keys while deferring social login; defer CAPTCHA and formal penetration testing; retain basic rate limiting, validation, password hashing, secret protection, ordinary security regression tests, independent review, CI, post-merge QA, and Roy's artifact-bound approval before deployment. This direct instruction is the approval source; no separate Jira/PRD approval record is asserted.
+
 ## 1. Product Owner decision
 
 The MVP demonstration shall demonstrate specification-driven development, autonomous multi-agent orchestration, RAG/vector search, LLM integrations, evaluations, and a functional REST URL-shortener API. It shall be publicly deployed on the existing Oracle Cloud VM/infrastructure, reusing what exists and avoiding new infrastructure/resource creation and over-engineered scaling. This PO decision supersedes the active AWS deployment target, but does not cancel the already approved 2026-11-02 AD-16/AD-17 safety and data-integrity obligations.
@@ -79,4 +81,4 @@ This plan intentionally distinguishes **superseded active scope** from **complet
 
 ## 6. SDD hand-off boundary
 
-This amendment updates requirements only. It does not alter `design.md`, implement code, create infrastructure, change Jira, deploy, or perform architecture reconciliation. Dwight's assigned session remains blocked by the prior provider `cyber_policy` result; no prompt, retry, restart, model/account switch, or alternate path was used. Architecture-dependent implementation and ticket updates stop pending reviewer access and architecture reconciliation.
+This amendment updates requirements only. It does not alter `design.md`, implement code, create infrastructure, change Jira, deploy, or perform architecture reconciliation. The direct 2026-11-15 PO instruction is the approval source for this amendment; the immutable PRD and historical Jira records remain unchanged. Dwight's assigned session remains blocked by the prior provider `cyber_policy` result; no prompt, retry, restart, model/account switch, or alternate path was used. Architecture-dependent implementation and ticket updates stop pending reviewer access and architecture reconciliation.
