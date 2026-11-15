@@ -10,6 +10,24 @@ jobs:
     name: CI / quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      observability-postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: observability_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '127.0.0.1:5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U postgres -d observability_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      trace-jaeger:
+        image: jaegertracing/all-in-one:1.57
+        env:
+          COLLECTOR_OTLP_ENABLED: 'true'
+        ports:
+          - '127.0.0.1:4318:4318'
+          - '127.0.0.1:16686:16686'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -22,10 +40,14 @@ jobs:
       - run: npm run lint
       - run: npm run check:naming
       - run: npm run typecheck
+      - run: npm run check:log-shape
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - run: npm run check:watcher-offline
       - run: npm run test:watcher-offline
       - run: npm test
+        env:
+          TEST_OBSERVABILITY_JAEGER: 'true'
+          TEST_OBSERVABILITY_DATABASE_URL: postgres://postgres@127.0.0.1:5432/observability_test
       - run: npm run build

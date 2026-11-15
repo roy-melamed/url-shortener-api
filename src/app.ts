@@ -26,6 +26,10 @@ import Fastify, {
 import type { AppConfig } from './platform/config.ts';
 import { createLogger, type AppLogger } from './platform/logger.ts';
 import { ulid } from './platform/ulid.ts';
+import { createReadiness, type ReadinessCheck } from './platform/readiness.ts';
+import { context, trace, SpanKind, SpanStatusCode, type Span } from '@opentelemetry/api';
+import { createObservability, queueSpanLink, type Observability } from './platform/telemetry.ts';
+import { requestObservation } from './platform/request-observation.ts';
 import {
   AppError,
   buildErrorEnvelope,
@@ -37,6 +41,8 @@ export interface BuildAppOptions {
   config: AppConfig;
   /** Pre-built logger (tests / custom destinations). Defaults to config-driven. */
   logger?: AppLogger;
+  readiness?: ReadinessCheck;
+  observability?: Observability;
 }
 
 interface MappedError {
@@ -49,7 +55,8 @@ interface MappedError {
 /**
  * Map any thrown value to the §5.1 error contract. Unknown/5xx errors are
  * collapsed to a safe `INTERNAL` message (no stack leakage — design §6.4);
- * the full error is still logged correlated by `requestId`.
+ * only the safe error code is logged correlated by `requestId` (raw error
+ * messages/stacks can contain credentials, SQL parameters or IPs).
  */
 function mapError(error: unknown): MappedError {
   if (error instanceof AppError) {
@@ -95,7 +102,12 @@ function mapError(error: unknown): MappedError {
  * @param options Configuration and optional logger.
  * @returns A ready-to-wire {@link FastifyInstance} (not yet `listen`/`ready`).
  */
-export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
+export function buildApp({
+  config,
+  logger,
+  readiness,
+  observability = createObservability(),
+}: BuildAppOptions): FastifyInstance {
   // Typed as FastifyBaseLogger so the instance keeps Fastify's default logger
   // generic (the pino AppLogger is structurally assignable to it).
   const baseLogger: FastifyBaseLogger = logger ?? createLogger(config);
@@ -112,31 +124,63 @@ export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
     logController,
     // Honor an API-Gateway/caller-provided correlation id when present; a
     // ULID is generated otherwise. Client-supplied ids are safe as correlation
-    // ids because pino JSON-encodes values (no log injection — design §8.2).
-    requestIdHeader: 'x-request-id',
-    genReqId: () => ulid(),
+    // ids only after a bounded identifier check; do not echo addresses/URLs.
+    requestIdHeader: false,
+    genReqId: (request) => {
+      const id = request.headers['x-request-id'];
+      return typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id) ? id : ulid();
+    },
+  });
+  const spans = new WeakMap<object, Span>();
+  const errors = new WeakMap<object, string>();
+  app.addHook('onRequest', (request, _reply, done) => {
+    const parent = queueSpanLink({ traceparent: String(request.headers.traceparent ?? '') });
+    const parentContext = parent
+      ? trace.setSpanContext(context.active(), parent.context)
+      : context.active();
+    const span = trace
+      .getTracer('url-shortener')
+      .startSpan('http.request', { kind: SpanKind.SERVER }, parentContext);
+    spans.set(request, span);
+    context.with(trace.setSpan(context.active(), span), done);
   });
 
   // ONE structured JSON log line per request (FR-10.1, design §8.2). The
   // `requestId` field is already bound on `request.log` via requestIdLogLabel.
   app.addHook('onResponse', async (request, reply) => {
+    const span = spans.get(request);
+    const route = request.routeOptions?.url ?? 'unmatched';
+    span?.setAttributes({
+      'http.request.method': request.method,
+      'http.route': route,
+      'http.response.status_code': reply.statusCode,
+    });
+    if (reply.statusCode >= 500) span?.setStatus({ code: SpanStatusCode.ERROR });
+    observability.request({
+      method: request.method,
+      route,
+      status: reply.statusCode,
+      durationMs: reply.elapsedTime,
+    });
     request.log.info(
       {
         route: request.routeOptions?.url ?? 'unmatched',
         method: request.method,
         status: reply.statusCode,
         durationMs: Math.round(reply.elapsedTime * 1000) / 1000,
+        traceId: span?.spanContext().traceId ?? '00000000000000000000000000000000',
+        ...requestObservation(request),
+        ...(errors.has(request) ? { errorCode: errors.get(request) } : {}),
       },
       'request completed',
     );
+    span?.end();
   });
 
   // Consistent error envelope (FR-7.2, design §5.1).
   app.setErrorHandler((error, request, reply) => {
     const mapped = mapError(error);
-    if (mapped.statusCode >= 500) {
-      request.log.error({ err: error }, 'unhandled error');
-    }
+    errors.set(request, mapped.code);
     reply
       .status(mapped.statusCode)
       .send(buildErrorEnvelope(mapped.code, mapped.message, request.id, mapped.details));
@@ -144,6 +188,7 @@ export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
 
   // JSON 404 envelope for unmatched routes (design §3.1, §5.1).
   app.setNotFoundHandler((request, reply) => {
+    errors.set(request, 'NOT_FOUND');
     reply
       .status(404)
       .send(
@@ -156,8 +201,22 @@ export function buildApp({ config, logger }: BuildAppOptions): FastifyInstance {
   });
 
   // Liveness — no dependency checks (FR-10.2, design §3.3/§8.5). Readiness
-  // (`/readyz`, DB `SELECT 1`) lands with the DB pool ticket.
+  // Readiness separately checks the configured direct/proxy DB seam.
   app.get('/healthz', async () => ({ status: 'ok' }));
+  const dependency = readiness
+    ? { check: readiness, close: async () => {} }
+    : createReadiness(config);
+  app.addHook('onClose', async () => dependency.close());
+  app.get('/readyz', async (_request, reply) => {
+    let ready = false;
+    try {
+      ready = await dependency.check();
+    } catch {
+      /* minimal redacted response */
+    }
+    reply.header('Cache-Control', 'no-store');
+    return reply.code(ready ? 200 : 503).send({ status: ready ? 'ok' : 'unavailable' });
+  });
 
   return app;
 }

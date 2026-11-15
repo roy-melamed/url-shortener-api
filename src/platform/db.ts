@@ -56,6 +56,7 @@ export function buildPoolConfig(config: AppConfig): PoolConfig {
     max: poolMax,
     statement_timeout: statementTimeoutMs,
     idleTimeoutMillis: idleTimeoutMs,
+    connectionTimeoutMillis: 1000,
     ssl: sslFromSslMode(sslMode),
     // Surface the workload for observability / RDS Proxy connection tagging.
     application_name: `url-shortener-api (${config.nodeEnv})`,

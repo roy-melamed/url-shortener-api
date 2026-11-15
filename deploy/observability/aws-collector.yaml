@@ -1,0 +1,38 @@
+# Historical AWS/ADOT example only. No deployment or credentials supplied.
+# Operator must provision IAM for X-Ray/CloudWatch and authorize exact target.
+# All spans for a trace must reach one collector for correct tail decisions.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 10000
+    policies:
+      - name: retain-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: baseline-ten-percent
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+  batch: {}
+exporters:
+  awsxray: {}
+  awsemf:
+    namespace: UrlShortener
+    log_group_name: /url-shortener/metrics
+    dimension_rollup_option: NoDimensionRollup
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [tail_sampling, batch]
+      exporters: [awsxray]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [awsemf]
