@@ -3,12 +3,12 @@
 | Field | Value |
 |---|---|
 | **Artifact** | `specs/url-shortener-api/requirements.md` |
-| **Status** | **Reconciled** with `design.md` §11 (AD-1…AD-15) — residual open flags only (§8.5) · platform revised 2026-11-02 per **AD-16** (human-approved Oracle Cloud migration; A1/A2 superseded, preserved in §8.0) · **AD-17 addendum 2026-11-02** (human-approved backup/queue/email/secrets/CI choices; operational particulars still open §8.5) |
-| **Date** | 2026-10-11 (created) · reconciled 2026-10-13 vs design.md §11 (human decisions 2026-10-12) · **revised 2026-11-02** (deployment platform: Oracle Cloud VM, human decision AD-16) · **AD-17 addendum 2026-11-02** (operational choices) |
+| **Status** | **Reconciled** with `design.md` §11 and amended by **PO-2026-11-15** (`amendments/2026-11-15-po-mvp-amendment.md`); original PRD remains immutable; historical AWS/architecture decisions are preserved as superseded or deferred |
+| **Date** | 2026-10-11 (created) · reconciled 2026-10-13 · platform/operations recorded 2026-11-02 · **PO amendment 2026-11-15** |
 | **Author** | Jim Halpert — Specification Agent |
 | **Source of truth** | `/home/roy/projects/ai-squad/PRD.md` — *Product Requirements Document: URL Shortener API*, Status: **Approved**, dated 2026-10-08 (immutable; not modified by this artifact) |
 | **Next hand-off** | Architect (Dwight) → `specs/url-shortener-api/design.md` |
-| **Blocked on** | No requirement blocked: Q1–Q4, Q6–Q10, A1–A7, AM-1/AM-3/AM-4/AM-5 all resolved via design.md §11; **AD-16 (2026-11-02) resolved the platform (Oracle Cloud VM / Docker Compose; A1·A2 superseded, AWS `database-1` untouched)**; **AD-17 (2026-11-02, addendum) resolved the backup direction (daily encrypted off-VM to OCI Object Storage, 7-day retention, globals + both databases, restore testing, least-privilege credentials), the click-event transport (Redis Streams, invariants preserved), the e-mail transport (existing provider), Caddy-when-domain-exists, and GitHub Actions with manual deployment approval**; **same-day amendment: the human selected the Redis Streams maximum redelivery/replay horizon = 48h (configured retention ≤48h, strictly below the 7-day dedup-token retention — §8.0 AD-17 item (2) / §8.5 #8, retained for traceability)**. **Still open (§8.5):** Q5 CAPTCHA provider vendor · GeoIP DB vendor/license · FR-3.1 delete/disable wording · AM-2 · AM-1/AC-03 charset conflict · cache-immediacy windows (design escalation E1) · **AD-16/AD-17 operational particulars #7, #9–#14** (OCI bucket/region/credentials · encryption/key management · RPO/RTO + restore schedule/owner · *#8 horizon: RESOLVED (48h max)* · protected-secret mechanism · SSH-source/temporary access & no domain/cert yet · CI registry/runner/deploy credentials · safe 5432 firewall/network plan & separate approval required to modify `url8-pg`) |
+| **Blocked on** | Product scope is amended by **PO-2026-11-15**; architecture-dependent implementation remains blocked on architecture reconciliation and reviewer access. Existing residual questions in §8.5 remain visible. CAPTCHA, social login, and formal penetration testing are deferred—not deleted or passed. |
 
 ---
 
@@ -21,14 +21,14 @@ This document translates the approved PRD into clear, complete, testable softwar
 - **Requirement IDs are stable.** Functional requirements retain the PRD's IDs (`FR-1.1` … `FR-10.6`); non-functional requirements are `NFR-1` … `NFR-9`; PRD acceptance criteria are `AC-01` … `AC-13`. IDs will not be renumbered in later revisions.
 - **Acceptance criteria use EARS-style wording** where practical (When / If / While … shall).
 - **Decision markers:** earlier revisions used `[PENDING Qn]`, `[PENDING A-n]` and `[AM-n]` to flag unresolved items. All such markers were **cleared on 2026-10-13** when this artifact was reconciled against `design.md` §11 (resolution log AD-1…AD-15, human decision-maker, 2026-10-12); each conversion is recorded in §8.0 with its source AD-ref. **`[OPEN §8.5]`** marks a residual item that still awaits a human.
-- **Still-open items live in §8.1 (Q5 provider vendor) and §8.5** and remain visible until a human resolves them.
+- **Historical/deferred items remain visible in §8.1 and §8.5.** Q5 CAPTCHA is explicitly deferred by PO-2026-11-15, not an active MVP blocker.
 - No requirement below invents scope beyond the PRD. Where the PRD is silent or contradictory, the gap is recorded in §8 rather than resolved.
 
 ## 3. Scope
 
 ### 3.1 In scope (MVP) — per PRD §8
 
-- Email/password registration plus Google and GitHub social login; email verification.
+- Email/password registration and login; email verification. Google/GitHub social login is **deferred by PO-2026-11-15**; historical social branches remain recorded below.
 - Dual authentication: API keys **and** JWT access tokens.
 - Link create (auto-generated and custom slug), read, edit destination, delete/disable.
 - Collision rejection with suggested alternatives.
@@ -37,11 +37,11 @@ This document translates the approved PRD into clear, complete, testable softwar
 - Redirects: 301/302 for active links, `410 Gone` for expired, `404 Not Found` for unknown/deleted — JSON bodies where a body is returned; no interstitial page.
 - Basic analytics: total clicks, referrer breakdown, country breakdown; 30-day individual-event retention; no visitor IP/PII.
 - QR code generation in PNG and SVG.
-- Per-user rate limiting (baseline 100 requests/minute) plus CAPTCHA on link creation.
+- Basic bounded rate limiting (baseline 100 requests/minute) with a testable 429 contract; CAPTCHA on link creation is **deferred by PO-2026-11-15**.
 - Single-resource endpoints only (no bulk operations).
-- Serverless deployment, PostgreSQL on existing AWS RDS, structured JSON logging, health checks, metrics, OpenTelemetry tracing, basic alerting. *(Superseded 2026-11-02 by AD-16 — see §4 Platform and §8.0.)*
-- **Given AD-16 (human, 2026-11-02):** containerized deployment via **Docker Compose on the confirmed Oracle Cloud Ubuntu ARM64 VM** (single-VM personal MVP), using the **existing PostgreSQL 16 container `url8-pg`** with its persistent Docker volume, private-network-only DB connectivity, restart policies and health checks, persistent storage, and automated backups; structured JSON logging, health checks, metrics, OpenTelemetry tracing, basic alerting.
-- **Given AD-17 (human, 2026-11-02 — addendum to AD-16):** approved operational choices for the same platform — **daily encrypted off-VM backups to OCI Object Storage** (7-day retention; globals **and** both databases `urlshortener` + `url8_acceptance`; **restore testing required**; least-privilege backup credentials), **Redis Streams** for asynchronous click aggregation with dedup/retries/DLQ behavior preserved and **no per-click synchronous DB write**, the **existing e-mail provider** for verification e-mail, **Caddy as reverse proxy when a custom domain exists** (none yet), and **GitHub Actions with manual deployment approval**. Unresolved operational particulars remain open (§8.5 #7–#14); `url8-pg` and its volume are reused **without modification/recreation absent separate approval**.
+- Public deployment on the existing Oracle Cloud VM/infrastructure, reusing what exists and avoiding new infrastructure/resource creation; structured JSON logging, health checks, metrics, OpenTelemetry tracing, and basic alerting. Exact runtime/resource mapping remains architecture/inventory work.
+- **AD-17 obligations remain active under PO-2026-11-15:** daily encrypted off-VM backups with 7-day retention, PostgreSQL globals and both approved databases, restore testing, least-privilege backup credentials; Redis Streams click transport with event deduplication, retries/DLQ, and no per-click synchronous DB write; the existing email provider; and GitHub Actions manual deployment approval. These requirements do not authorize creation of an OCI bucket, Redis service, email provider, or other resource. Inventory must verify whether approved existing resources satisfy them.
+- **Conflict rule:** if inventory shows that an AD-17 dependency is unavailable (for example, no existing OCI bucket or Redis service), the requirement remains active and deployment is blocked pending Roy's minimum decision: authorize an existing-resource exception, authorize creation of the specific missing resource, or approve a dated deferral with explicit residual risk. No such conflict is resolved or inferred here.
 
 ### 3.2 Out of scope (v2+) — per PRD §4 Non-Goals and §8
 
@@ -65,11 +65,11 @@ This document translates the approved PRD into clear, complete, testable softwar
 |---|---|
 | **Auth** | Dual auth: API keys (Bearer) + JWT (FR-1.3). Email verification required before any link creation (FR-1.2). All link creation is authenticated — no anonymous `POST /links` (design §11 AD-4). Per-user ownership checks on all mutations (FR-3.2, NFR-5). |
 | **Redirects** | Fast redirect, direct, no intermediate page (FR-4.1). Default **302 + `Cache-Control: no-store`** (design §11 AD-1 — Q8 resolved). `410 Gone` expired (FR-4.2), `404 Not Found` unknown/deleted (FR-4.3), JSON error bodies (FR-7.2/7.3). **No CDN/edge layer in front** (AD-1/AD-2/AD-7). |
-| **Analytics / privacy** | No visitor IPs or PII stored; aggregate counts only; individual click events purged within 30 days (FR-5.2, NFR-4). Country breakdown via transient request-time GeoIP — IP never persisted or logged (design §11 AD-2 — Q4 resolved). **Aggregation pipeline is asynchronous (AD-17: Redis Streams transport); redirect serving shall perform no per-click synchronous database write.** |
+| **Analytics / privacy** | No visitor IPs or PII stored; aggregate counts only; individual click events purged within 30 days (FR-5.2, NFR-4). Country breakdown via transient request-time GeoIP — IP never persisted or logged (design §11 AD-2 — Q4 resolved). **Aggregation pipeline is asynchronous (AD-17: Redis Streams transport); redirect serving shall perform no per-click synchronous database write. Inventory must verify the existing transport; no new Redis resource is implied.** |
 | **QR codes** | Generated for the requesting user's own links; PNG and SVG output (FR-6). Payload = short URL, `?format=png|svg`, no styling options (design §11 AD-15 — Q7 resolved). |
-| **Rate limiting / abuse** | 100 requests/minute per user/key baseline — **uniform, no tiers in MVP** (design §11 AD-7 — Q3/A4 resolved); `429` + retry guidance (FR-8); anonymous redirect traffic not application-rate-limited (AM-4 closed by AD-7). CAPTCHA on creation (FR-2.7): mode `suspicious`, pluggable provider (design §11 AD-3) — **provider vendor still open [OPEN §8.5]**. |
+| **Rate limiting / abuse** | Basic bounded 100 requests/minute per user/key baseline, uniform with `429` + retry guidance (FR-8). Implementation is intentionally implementation-neutral under PO-2026-11-15; per-process or single-instance limitations must be disclosed unless an existing shared mechanism is justified. CAPTCHA is deferred, not deleted. |
 | **Observability** | Structured JSON logs for all requests, health checks, metrics (request rate, latency, error rate, redirects), OpenTelemetry tracing, basic error alerting; lightweight and local-dev friendly; tool choice belongs to the Architect (FR-10). |
-| **Platform** | **Revised 2026-11-02 — AD-16 (human-approved):** containerized **Docker Compose** deployment on the confirmed **Oracle Cloud Ubuntu ARM64 VM** (single-VM personal MVP); data in the **existing PostgreSQL 16 container `url8-pg`** with a persistent Docker volume; **DB private-network-only, not publicly exposed**; restart policies and health checks; persistent storage; automated backups. **HA, Multi-AZ, and the former 99.9% redirect-path target are explicitly NOT required.** Async click aggregation is preserved unchanged. *(Supersedes the 2026-10-12 AWS decisions A1/AD-11 and A2/AD-12, preserved as superseded in §8.0.)* **AD-17 (2026-11-02, addendum):** backups are **daily, encrypted, off-VM to OCI Object Storage** (7-day retention; globals + both databases; restore testing; least-privilege credentials — bucket/region/credentials/key management open §8.5 #7/#8); click-event transport is **Redis Streams** with dedup/retries/DLQ preserved and no per-click synchronous DB write (redelivery/replay horizon **RESOLVED same-day: human-selected maximum = 48h** — configured retention ≤48h and strictly below the 7-day dedup-token retention; §8.0 AD-17 item (2) amendment · §8.5 #8 retained for traceability); e-mail via the **existing provider**; **Caddy** as reverse proxy **when a custom domain exists** (none yet — temporary access path open §8.5 #12); CI is **GitHub Actions with manual deployment approval** (registry/runner/deploy credentials open §8.5 #13). |
+| **Platform** | **PO-2026-11-15** supersedes AWS deployment for the active demonstration and requires reuse of existing Oracle VM/infrastructure with no new resource creation. AD-16/AD-17 behavior and acceptance remain active: backup/restore, Redis Streams click transport, existing email provider, and manual deployment approval. Exact availability of each existing dependency is an inventory question; missing dependencies require Roy's decision under the conflict rule above. |
 
 ---
 
@@ -79,14 +79,14 @@ This document translates the approved PRD into clear, complete, testable softwar
 
 | ID | Requirement |
 |---|---|
-| FR-1.1 | Users **shall** be able to register with email + password, or via social login (Google, GitHub). Social provider set: Google + GitHub exclusively (design §11 AD-14 — Q6 resolved). |
+| FR-1.1 | Users **shall** be able to register and log in with email + password. Google/GitHub social login is **deferred by PO-2026-11-15**; the historical social-login requirement and acceptance branch remain preserved in the amendment record. |
 | FR-1.2 | Email verification **shall** be required before creating links. An unverified user attempting link creation **shall** receive an error and no link **shall** be created. |
 | FR-1.3 | The API **shall** authenticate using both: **API keys** (Bearer tokens) for server-to-server use, and **JWT access tokens** for user sessions. |
 | FR-1.4 | Users **shall** be able to delete their own account along with their links and associated analytics. Deletion is immediate and irreversible in MVP — confirmed: hard-delete cascade (design §11 AD-13 — A7 confirmed). |
 
 **Acceptance criteria (EARS):**
 
-- **AC-FR-1.1:** When a new user submits registration with email/password or via Google/GitHub, the system shall create an account in an unverified state.
+- **AC-FR-1.1:** When a new user submits registration with email/password, the system shall create an account in an unverified state. Google/GitHub registration is deferred and is not part of active MVP acceptance.
 - **AC-FR-1.2:** If an authenticated but unverified user attempts `POST /links`, the system shall reject the request with an error response and create no link; when the user's email is verified, the same request shall succeed.
 - **AC-FR-1.3:** While presenting a valid API key, an API request shall be authenticated; while presenting a valid JWT, a user-session request shall be authenticated; invalid or missing credentials shall be rejected.
 - **AC-FR-1.4:** When a user deletes their account, the system shall remove the account, all links owned by it, and their associated analytics.
@@ -101,7 +101,7 @@ This document translates the approved PRD into clear, complete, testable softwar
 | FR-2.4 | **Collision handling:** if a custom slug is already taken, the system **shall** reject the request (HTTP 409) and suggest **3 availability-checked alternatives** (design §11 AD-8 — AM-5 resolved). Slugs from expired or deleted links are treated as taken and are **never released** in MVP (design §11 AD-5 — Q1 resolved). |
 | FR-2.5 | **Idempotency:** creation requests **may** include an `Idempotency-Key` header; retries with the same key **shall** return the original result without creating duplicates. |
 | FR-2.6 | **Expiration:** links **shall** be permanent by default; the user **may** optionally set an expiration at creation. Expiration is **not editable after creation** this phase (design §11 AD-6 — Q2 resolved). |
-| FR-2.7 | **Abuse prevention:** link creation **shall** be protected by rate limiting and CAPTCHA. Trigger resolved: CAPTCHA challenges only risk-triggered ("suspicious") creates via a pluggable provider (design §11 AD-3 — Q5 trigger half resolved); creation is authenticated-only, no anonymous `POST /links` (design §11 AD-4 — Q10/A6 resolved). Provider vendor still open **[OPEN §8.5]**. |
+| FR-2.7 | **Abuse prevention:** link creation **shall** be protected by the active bounded rate limit. CAPTCHA is **deferred by PO-2026-11-15**, not deleted; the historical CAPTCHA requirement/provider decision remains recorded in the amendment. Creation remains authenticated-only. |
 
 **Acceptance criteria (EARS):**
 
@@ -111,7 +111,7 @@ This document translates the approved PRD into clear, complete, testable softwar
 - **AC-FR-2.4:** If a requested custom slug is already taken — including one belonging to an expired or deleted link — the system shall reject the request and return suggested available alternatives.
 - **AC-FR-2.5:** When a `POST /links` request is replayed with the same `Idempotency-Key`, the system shall return the original result and shall not create a duplicate link.
 - **AC-FR-2.6:** When no expiration is supplied, the link shall be permanent; when an expiration is supplied, the system shall treat the link as expired after that time; `expiresAt` is immutable after creation (AD-6).
-- **AC-FR-2.7:** While rate-limit or CAPTCHA checks fail, the system shall block link creation with the applicable error (`429` for rate limiting, per FR-8.2).
+- **AC-FR-2.7:** While the active rate-limit check fails, the system shall block link creation with `429` per FR-8.2. CAPTCHA behavior is deferred and is not an active MVP acceptance claim.
 
 ### FR-3: Link Management
 
@@ -191,29 +191,29 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 
 | ID | Requirement |
 |---|---|
-| FR-8.1 | Per-user rate limits **shall** be applied, baseline **100 requests/minute** per user/key. |
+| FR-8.1 | Bounded per-user/key rate limits **shall** be applied, baseline **100 requests/minute**. The implementation is not prescribed by this requirement; any per-process or single-instance limitation shall be disclosed, and no new shared infrastructure is implied. |
 | FR-8.2 | Rate-limited requests **shall** return a standard `429 Too Many Requests` response with retry guidance (e.g., retry-after hint). |
 | FR-8.3 | Tiering: **none in MVP** — the baseline is uniform at 100 requests/minute for all users (design §11 AD-7 — Q3 closed for MVP, A4 confirmed; a subject-policy extension point is retained for any future tier). Anonymous/redirect traffic is **not** application-rate-limited (AM-4 closed by AD-7). |
 
 **Acceptance criteria (EARS):**
 
-- **AC-FR-8.1:** While a user or key exceeds 100 requests in a one-minute window, subsequent requests shall receive `429 Too Many Requests` including retry guidance.
+- **AC-FR-8.1:** While a user or key exceeds the 100-request/minute baseline, subsequent requests shall receive `429 Too Many Requests` including retry guidance. Verification shall identify the enforcement scope (for example, process or existing shared mechanism) and its limitations.
 - **AC-FR-8.2:** When request rate is within the baseline, the system shall serve requests normally.
 
 ### FR-9: Deployment & Platform
 
 | ID | Requirement |
 |---|---|
-| FR-9.1 | The application **shall** be deployed as a **containerized, long-running application via Docker Compose on the confirmed Oracle Cloud Ubuntu ARM64 VM** (single-VM personal MVP) — human decision **AD-16** (2026-11-02), superseding the former serverless platform (A2/AD-12, §8.0). Containers **shall** use configured **restart policies** and **health checks** so the service recovers automatically after container failure. Rediscovery note: the dual local-entrypoint pattern is retained for local development only; it is no longer a platform dependency. |
-| FR-9.2 | Data **shall** be stored in the **existing PostgreSQL 16 database in the `url8-pg` Docker container on the confirmed Oracle Cloud VM, backed by its persistent Docker volume** (human decision AD-16, 2026-11-02 — supersedes the former "existing PostgreSQL on AWS RDS", A1/AD-11). The database **shall** be reachable only via the **private application-to-DB Docker network** and **shall not be publicly exposed**. The `url8-pg` container and its existing persistent volume **shall be reused as-is** — **no modification or recreation of the container, its configuration, or its volume absent a separate human approval** (AD-17). **Backups (AD-17):** automated backups **shall** run **daily**, **encrypted**, **off-VM** to **OCI Object Storage**, covering **PostgreSQL globals plus both databases (`urlshortener` and `url8_acceptance`)**, with a **7-day retention** window and **least-privilege credentials** for the backup writer; backups **shall** be validated by **restore testing** (AC-FR-9.4). **Still open (§8.5 #7):** the OCI bucket name/region and its credentials, the encryption/key-management mechanism, RPO/RTO values, and the restore-testing schedule/owning role — none is specified here. Persistent storage for the volume is required; committed configuration shall contain no endpoint/credential literals (**no committed secrets**; protected-secret mechanism itself is open, §8.5 #11). |
-| FR-9.3 | The solution **shall** be lightweight enough to run against a local PostgreSQL for development (NFR-8 as written; see NFR-7). Deployment platform revised (AD-16, 2026-11-02): **Docker Compose on the confirmed Oracle Cloud VM**, with committed configuration free of endpoint/credential literals (**no committed secrets**). The dual local-entrypoint portability pattern is retained for local development. |
+| FR-9.1 | The application **shall** be publicly deployed on the existing Oracle Cloud VM/infrastructure selected by the PO, reusing what exists and avoiding new infrastructure/resource creation. Where the approved existing containerized runtime is used, configured restart behavior and observable health checks shall remain active requirements; inventory uncertainty blocks deployment and does not weaken them. |
+| FR-9.2 | Persistent application data **shall** use the existing PostgreSQL `url8-pg` container and persistent volume where verified, reused as-is. The DB shall be reachable only over the private application-to-DB network and shall not be publicly exposed. The DB container, configuration, and volume shall not be modified or recreated without separate explicit human approval. Endpoints, credentials, and secrets shall not be committed. AD-17 backup obligations remain active: daily encrypted off-VM backup, 7-day retention, globals plus both approved databases, least-privilege credentials, and restore testing. Exact resource availability requires inventory; no new backup resource is implied. |
+| FR-9.3 | The solution **shall** remain runnable locally for development from the same requirements-defined product surface. Deployment shall use the approved existing containerized Oracle runtime where verified, with no unapproved AWS or new-resource implementation detail added by this amendment. |
 
 **Acceptance criteria (EARS):**
 
-- **AC-FR-9.1:** While the Oracle VM is running, the service shall operate under Docker Compose as long-running containers with (a) configured restart-on-exit behavior, such that a failed (exited) container restarts automatically, and (b) an observable health-check status (per FR-10.2), such that container health state is monitorable/observable. **Health-check failure alone shall not be claimed to trigger an automatic restart** (Docker Compose restart policies act on exited processes, not on `unhealthy` status — operator/remediation behavior on a persistently unhealthy container is a separate design decision). No serverless platform dependency exists.
-- **AC-FR-9.2:** All persistent data (accounts, links, aggregates) shall reside in the PostgreSQL 16 persistent-volume store of the `url8-pg` container on the Oracle VM; while the DB container is connected solely over the private application-to-DB Docker network, no public exposure of the database shall exist; no database endpoint or credential literal shall appear in committed code or config; the `url8-pg` container and volume shall be reused without modification or recreation absent separate approval (AD-17).
+- **AC-FR-9.1:** Before deployment, evidence shall identify the existing Oracle target and exact release artifact mapping. The approved existing containerized runtime shall retain configured restart behavior and observable health-check status. No new infrastructure/resource creation shall occur; unknown inventory blocks deployment.
+- **AC-FR-9.2:** Before deployment, evidence shall verify the existing PostgreSQL `url8-pg` container and persistent volume mapping, private application-to-DB network, no public DB exposure, absence of committed endpoint/credential literals, and that no DB container/config/volume modification or recreation occurred without separate explicit approval. Unknown inventory is a blocker, not a pass.
 - **AC-FR-9.3:** A developer shall be able to run the application locally against a local PostgreSQL instance.
-- **AC-FR-9.4:** When a backup completes (AD-17: daily, encrypted, off-VM to OCI Object Storage; 7-day retention; globals + both databases; least-privilege credentials), the backed-up set shall be validated by restore testing; the restore-testing schedule and the owning role remain open (§8.5 #7) and no RPO/RTO value is asserted.
+- **AC-FR-9.4:** Before deployment, the approved backup set shall be covered by daily encrypted off-VM backups with 7-day retention, globals plus both approved databases, least-privilege credentials, and restore-test evidence. If the required existing backup resource is unavailable, this criterion is BLOCKED pending Roy's conflict decision; no unexecuted backup or restore check passes. URL-27's completed implementation/evidence remains historical evidence and is not downgraded.
 
 ### FR-10: Observability
 
@@ -244,9 +244,9 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | NFR-2 | Scale | Must support **10,000+ users** and **1,000,000+ links**. |
 | NFR-3 | Availability | **Revised 2026-11-02 (AD-16):** single-VM personal MVP on the confirmed Oracle Cloud VM. High availability and Multi-AZ are **explicitly not required**, and the former human-confirmed **99.9%** monthly redirect-path target is **withdrawn with the superseded AWS basis (A1/AD-11)**. Health checks remain exposed (FR-10.2). |
 | NFR-4 | Privacy | No visitor IPs or PII stored; aggregate counts only; individual click events purged within **30 days**. |
-| NFR-5 | Security | Rate limiting + CAPTCHA on creation; email verification before link creation; per-user ownership checks; API key/JWT auth. |
+| NFR-5 | Security | Bounded rate limiting; email verification before link creation; per-user ownership checks; API key/JWT auth; input validation, password hashing, and secret protection. CAPTCHA is deferred by PO-2026-11-15 and remains historical scope, not an active acceptance claim. |
 | NFR-6 | Data lifecycle | Users can delete their links and associated analytics at any time. |
-| NFR-7 | Portability | **Revised 2026-11-02 (AD-16):** runs against a **local PostgreSQL for development** and against the **containerized PostgreSQL 16 (`url8-pg`) on the confirmed Oracle Cloud VM** from a **single codebase**, with container-image parity between the local and deployed forms; application code retains **no cloud-vendor lock-in** (the local/exportable posture replaces the former "serverless-friendly; works against AWS RDS" wording). |
+| NFR-7 | Portability | Runs against a local PostgreSQL for development and the verified existing Oracle data resource from a single codebase; exact database/container identity and image parity are inventory/architecture concerns, not invented by this amendment. |
 | NFR-8 | Observability | JSON logs, metrics, health checks, OpenTelemetry tracing, basic alerting (see FR-10). |
 | NFR-9 | Extensibility | Single shared domain now; custom domains designed for in a later version (v2). |
 
@@ -264,7 +264,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 
 | AC ID | PRD acceptance criterion (condensed) | Mapped requirements |
 |---|---|---|
-| AC-01 | Signup & verification: register via email/password or Google/GitHub; unverified user gets an error on link creation; verified user succeeds | FR-1.1, FR-1.2, NFR-5 · resolved AD-14 |
+| AC-01 | Signup & verification: register/login via email/password; unverified user gets an error on link creation; verified user succeeds. Google/GitHub branch deferred by PO-2026-11-15. | FR-1.1, FR-1.2, NFR-5 |
 | AC-02 | Create link: authenticated `POST /links` with only a destination returns a short URL with auto-generated alphanumeric code | FR-2.1, FR-2.2 |
 | AC-03 | Custom slug: supplying `my-campaign` (stated as 3–50 alphanumeric chars) gets that slug; an existing slug returns rejection + suggestions | FR-2.3, FR-2.4 — strict charset `[a-zA-Z0-9]` per AD-8, AD-5: **PRD's `my-campaign` example contains `-` and would be rejected — conflict [OPEN §8.5]** |
 | AC-04 | Idempotency: replaying `POST /links` with same `Idempotency-Key` returns original link, no duplicate | FR-2.5 |
@@ -274,7 +274,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | AC-08 | Edit & delete: owner updates destination and deletes/disables; non-owner receives authorization error | FR-3.1, FR-3.2 · delete/disable wording [OPEN §8.5] |
 | AC-09 | Analytics: owner retrieves total clicks, referrer and country breakdowns; no visitor IP/PII stored; events not retained beyond 30 days | FR-5.1, FR-5.2, NFR-4 · resolved AD-2, AD-9, AD-10 |
 | AC-10 | QR codes: owner downloads QR for their link in PNG and SVG | FR-6.1, FR-6.2 · resolved AD-15 |
-| AC-11 | Rate limiting: >100 req/min returns `429` with retry guidance; link creation is CAPTCHA-protected | FR-8.1, FR-8.2, FR-2.7 · resolved AD-7 (uniform baseline); CAPTCHA mode AD-3 — provider vendor [OPEN §8.5] |
+| AC-11 | Rate limiting: exceeding the bounded 100 req/min baseline returns `429` with retry guidance. CAPTCHA protection is deferred by PO-2026-11-15 and is not an active MVP acceptance claim. | FR-8.1, FR-8.2, FR-2.7 |
 | AC-12 | Observability: health check responds; JSON logs emitted; metrics cover request rate, latency, error rate, redirects; tracing works locally | FR-10.1–10.4, NFR-8 |
 | AC-13 | Account deletion: user deletes account, removing links and associated analytics | FR-1.4, FR-5.3, NFR-6 · resolved AD-13 |
 
@@ -317,15 +317,15 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | **AD-16** | **Deployment-platform migration (NEW)** | **Human-approved 2026-11-02:** personal MVP runs on **one confirmed Oracle Cloud Ubuntu ARM64 VM** via **Docker Compose**, reusing the **existing PostgreSQL 16 container `url8-pg`** and its **persistent Docker volume**. Security conditions: DB **private-only** (not publicly exposed, private app-to-DB Docker network), **restart policies**, **health checks**, **persistent storage**, **automated backups**, **no committed secrets**, **no new AWS resources**, **no deletion of AWS resources/databases**. **Availability:** HA, Multi-AZ, and the former **99.9%** redirect-path target are **explicitly NOT required**; NFR-3/AC-NFR-3 revised accordingly. Async click aggregation and all product acceptance criteria are preserved unchanged. **Out of scope, untouched:** the existing **AWS RDS `database-1`** — data/dependency review and any migration remain separate, unmade decisions. Open follow-ons: backup cadence/retention/RPO/RTO, click-event transport, TLS posture, observability tooling re-selection (**§8.5 #7–#10**). | **Michael (human), 2026-11-02** | FR-9.1–9.3, AC-FR-9.1/9.2, NFR-3, NFR-7, AC-NFR-3; supersedes A1/AD-11, A2/AD-12 |
 | **AD-17** | **Operational-choices addendum to AD-16 (NEW)** | **Human-approved 2026-11-02 (same platform as AD-16 — nothing herein re-opens AD-16 or A1/A2/AD-11/12, all preserved):** (1) **Reuse `url8-pg` and its existing persistent volume without modifying or recreating them absent separate approval.** (2) **Async click aggregation via Redis Streams**, preserving **eventId dedup, retries/DLQ behavior, and no per-click synchronous DB writes**; redelivery horizon must remain **shorter than the 7-day eventId-dedup retention** — stated as an invariant; **the specific horizon value (a proposed 48h) is not human-selected and remains open (§8.5 #8b)** · **[AMENDED same-day 2026-11-02 by explicit human decision: the horizon is now RESOLVED — the owner selected the maximum redelivery/replay horizon = 48 hours; configured retention must be ≤48h and remain strictly below the existing 7-day eventId-dedup retention; the formerly-open leg is closed, retained in §8.5 #8 for traceability; no exact value below 48h was specified and Redis persistence settings remain design-level]**. (3) **Backups: daily, encrypted, off-VM to OCI Object Storage — 7-day retention, PostgreSQL globals + both databases (`urlshortener`, `url8_acceptance`), restore testing required, least-privilege backup credentials**; particulars open (§8.5 #7). (4) **Protected secrets outside Git** — mechanism open (§8.5 #11). (5) **Caddy as reverse proxy when a custom domain exists** — none yet; temporary access/SSH-source plan open (§8.5 #12). (6) **Existing e-mail provider** for verification e-mail (FR-1.2 transport; local dev MailHog unchanged). (7) **GitHub Actions with manual deployment approval** — registry/runner/deploy credentials open (§8.5 #13). **Safe 5432 private-only firewall/network plan** and **any modification of `url8-pg` (e.g., restart policy) require separate approval** (§8.5 #14). **AWS RDS `database-1` remains untouched pending separate data/dependency review.** | **Michael (human), 2026-11-02** | FR-9.2, AC-FR-9.2/9.4, AC-NFR-3, §8.3 (transport), §4 Platform/Analytics rows |
 
-*(Q5 is only **partly** resolved — trigger mode via AD-3; the provider vendor remains open: §8.1 and §8.5.)*
+*(Q5 CAPTCHA is retained as a historical record and explicitly deferred by PO-2026-11-15; it is not an active MVP shipping dependency.)*
 
-### 8.1 Open Questions (from PRD §10 — only Q5 remains, narrowed)
+### 8.1 Historical open questions and PO deferrals
 
 | # | Question | Status / impact | Dependent requirements |
 |---|---|---|---|
-| Q5 | **CAPTCHA provider & trigger:** Which CAPTCHA, and is it required on every create or only when suspicious? | **Trigger RESOLVED** — pluggable `CaptchaProvider`, mode `suspicious` (design §11 AD-3). **Provider vendor still OPEN** (design §10.8/§11.2, owner Michael) | FR-2.7, AC-FR-2.7, AC-11 |
+| Q5 | **CAPTCHA provider & trigger** | **Deferred by the direct Product Owner instruction dated 2026-11-15.** Historical trigger/vendor decisions remain traceability only; no provider, interface, mode, live adapter, or active shipping obligation is authorized for this MVP. | Historical FR-2.7, AC-FR-2.7, AC-11 |
 
-*Q1–Q4 and Q6–Q10 are resolved — see §8.0.*
+*Q1–Q4 and Q6–Q10 are resolved — see §8.0. Q5 is retained as a historical record and explicitly deferred for this MVP.*
 
 ### 8.2 Assumptions (A1–A7) — all confirmed
 
@@ -333,11 +333,11 @@ All seven assumptions are **confirmed or moot** per design §11: A1 → AD-11, A
 
 ### 8.3 Requirement → open decision dependency index
 
-*All former [PENDING …] dependencies were cleared by the 2026-10-13 reconciliation (see §8.0). Only these remain:*
+*All former [PENDING …] dependencies were cleared by the 2026-10-13 reconciliation (see §8.0). The following remain as requirements or historical/deferred records:*
 
 | Requirement | Depends on (still open) |
 |---|---|
-| FR-2.7 (live CAPTCHA challenge) | Q5 provider vendor — design §10.8 / §11.2 |
+| FR-2.7 / AC-FR-2.7 / AC-11 CAPTCHA leg | **Deferred historical dependency** per PO-2026-11-15; no live provider or replacement is an active MVP blocker or shipping obligation |
 | FR-5.1 (country-breakdown provisioning) | GeoIP database vendor/license — design §10.9 / §11.2 (requirement text final; AD-2 Option B stands) |
 | FR-3.1 / AC-FR-3.1 (delete vs disable wording) | design §10.4 / §11.2 (Michael) |
 | AC-FR-3.1 / AC-FR-2.1 (delete & create resolution immediacy) | design escalation **E1** (§13.3): 60s deleted-as-active, 30s negative-cache — open; edit-propagation ≤60s already AD-1-accepted, confirm as intended |
@@ -361,7 +361,7 @@ These were identified while writing this specification and are **not** part of t
 | # | Item | Source | Affects | Owner |
 |---|---|---|---|---|
 | 1 | ⚠ **AM-1 / AC-03 charset conflict:** design §11 AD-8 (strict `[a-zA-Z0-9]`, 2026-10-12) contradicts the earlier human ruling recorded in this artifact on 2026-10-11 ("allow hyphen", `[a-zA-Z0-9-]`), which was lost when requirements.md was externally reverted (mtime 2026-10-12 16:08). AD-8 is applied here as the later recorded decision. Under AD-8, PRD AC-3's example slug `my-campaign` (contains `-`) is rejected — the PRD-internal contradiction persists. | design §11 AD-8 vs. prior §8.0 record; PRD FR-2.3 vs. PRD AC-3 | FR-2.3, FR-2.4, AC-03 | Human (Michael) |
-| 2 | **CAPTCHA provider vendor** (Q5's vendor half) — the `CaptchaProvider` interface and `suspicious` mode ship regardless, but no vendor is named | design §10.8, §11.2 | FR-2.7 live challenge | Human (Michael) |
+| 2 | **CAPTCHA provider/vendor** — historical dependency retained for traceability, but the provider, interface, suspicious mode, and live adapter are **deferred and not active MVP shipping obligations** under the direct PO instruction dated 2026-11-15 | design §10.8, §11.2; PO amendment | Historical FR-2.7/AC-FR-2.7/AC-11 | Deferred; no active blocker |
 | 3 | **GeoIP database vendor/license** for AD-2 Option B (layer/local-file provisioning only) | design §10.9, §11.2 | FR-5.1 country breakdown provisioning | Human/Developer |
 | 4 | **FR-3.1 "delete/disable" wording** — delete-only vs reversible disable (endpoint already satisfies AC-FR-3.1; a reversible disable would be additive) | design §10.4, §11.2 | FR-3.1, AC-FR-3.1, AC-08 | Human (Michael) |
 | 5 | **AM-2** — PRD header says "Approved", footer says "draft" | §8.4; design §11.2 | Documentation only | Human |
@@ -377,6 +377,23 @@ These were identified while writing this specification and are **not** part of t
 
 ---
 
-## 9. Artifact boundaries
+## 9. PO-2026-11-15 amendment record
 
-This artifact contains requirements only. Per my role: no architecture, no `design.md`, no `tasks.md`, no implementation code, no tickets, no changes to the PRD. **Resolved (2026-10-13, sourced from design.md §11 AD-1…AD-15, human 2026-10-12):** Q1–Q4, Q6–Q10, A1–A7, AM-1, AM-3, AM-4, AM-5. **Human decisions recorded 2026-11-02 (§8.0):** **AD-16** — deployment-platform migration to Docker Compose on the confirmed Oracle Cloud VM (A1/AD-11 and A2/AD-12 superseded, records preserved); **AD-17 addendum** — approved operational choices (daily encrypted off-VM backups to OCI Object Storage with 7-day retention, globals + both databases, restore testing, least-privilege credentials; Redis Streams click-event transport preserving dedup/retries/DLQ with no per-click synchronous DB writes; existing e-mail provider; Caddy when a domain exists; GitHub Actions with manual deployment approval; `url8-pg`/volume reuse without modification/recreation absent separate approval; **Redis Streams maximum redelivery/replay horizon = 48h (same-day amendment — configured retention ≤48h, strictly below the 7-day eventId-dedup retention; §8.5 #8 retained for traceability)**). The existing **AWS RDS `database-1`** remains untouched — data/dependency review and any migration kept as separate, unmade decisions. **Still open and reported to Michael (§8.5):** the AM-1/AC-03 charset conflict, the Q5 CAPTCHA provider vendor, the GeoIP database vendor/license, the FR-3.1 delete/disable wording, AM-2, the cache-immediacy windows escalation (design E1), and the AD-16/AD-17 particulars #7, #9–#14 (OCI bucket/region/credentials, encryption/key management, RPO/RTO + restore schedule/owner, protected-secret mechanism, SSH-source/temporary access & no domain/cert yet, CI registry/runner/deploy credentials, safe 5432 firewall/network plan, separate approval for any `url8-pg` modification); item **#8 is resolved** (48h maximum horizon) and retained for traceability.
+The full dated amendment, rationale, acceptance evidence, Jira update plan, and unresolved product decisions are in `amendments/2026-11-15-po-mvp-amendment.md`. This section is the active requirements reconciliation; it does not modify the immutable approved `PRD.md` or historical Jira records.
+
+### Active MVP demonstration requirements
+
+- **PO-MVP-1:** Demonstrate SDD, autonomous multi-agent orchestration, RAG/vector search, LLM integrations, evaluations, and a functional REST URL-shortener API. Corpus, vector store, model/provider, thresholds, and user flows remain unselected until separately specified.
+- **PO-MVP-2:** Use existing Oracle Cloud VM/infrastructure for public deployment; reuse what exists and create no new infrastructure/resources. Exact target mapping remains architecture/inventory work. AD-17 backup/restore, Redis Streams click transport, existing email provider, and manual deployment approval obligations remain active; unavailable dependencies require Roy's explicit decision.
+- **PO-MVP-3:** Active account scope is email/password registration/login, email verification, JWT authentication, and API keys. Google/GitHub social login is deferred.
+- **PO-MVP-4:** Retain access control, validation, password hashing, secret protection, bounded rate limiting, ordinary security regression tests, and PR #19's encoded-path fix/regressions. CAPTCHA and formal penetration testing are deferred, not deleted or passed.
+- **PO-MVP-5:** Retain independent review, CI, post-merge QA, and Roy's approval bound to the actual release artifact before deployment. Repository exact-head gates in `AGENTS.md` remain unchanged.
+- **AD-17 reconciliation:** Daily encrypted off-VM backups with 7-day retention, globals plus both approved databases, restore testing, least-privilege credentials, Redis Streams with deduplication/retries/DLQ and no per-click synchronous DB write, existing email provider, and manual deployment approval remain active. No new bucket, Redis service, provider, or other resource may be created without separate authorization. If inventory shows a missing dependency, the requirement remains active and deployment is blocked pending Roy's minimum exception/creation/dated-deferral decision.
+
+### Explicit non-claims
+
+This artifact does not claim that deferred social login, CAPTCHA, formal penetration testing, or any unexecuted RAG/LLM/evaluation check is implemented or passed. It does not select providers, corpora, thresholds, infrastructure details, or deployment credentials. It does not alter `design.md`, Jira, code, or deployed infrastructure.
+
+## 10. Artifact boundaries
+
+This artifact contains requirements only. Per my role: no architecture, no `design.md`, no `tasks.md`, no implementation code, no tickets, no changes to the PRD. Historical decisions and completed work remain traceable in §8.0 and the dated amendment. The amendment's architecture-dependent details require Dwight reconciliation before implementation; Dwight's assigned session is currently provider-blocked, so implementation hand-off stops at this boundary.
