@@ -1,8 +1,8 @@
 # Product Owner Amendment — MVP Demonstration Scope
 
-**Status:** Approved Product Owner amendment, dated 2026-11-15  
-**Specification owner:** Jim Halpert — Specification Agent  
-**Base:** `origin/main` at `01962f8a25cd141d99c669cece4811b8a059ce0b`  
+**Status:** Approved Product Owner amendment, dated 2026-11-15
+**Specification owner:** Jim Halpert — Specification Agent
+**Base:** `origin/main` at `01962f8a25cd141d99c669cece4811b8a059ce0b`
 **Relationship to PRD:** This is a versioned amendment to the immutable approved `PRD.md` (dated 2026-10-08). It does not overwrite, reinterpret, or alter that historical document. The working requirements artifact records the amended active MVP scope while preserving superseded requirements and rationale here.
 
 ## 1. Product Owner decision
