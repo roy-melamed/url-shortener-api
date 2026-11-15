@@ -1,0 +1,10 @@
+{
+  "site": "fixture-jira.invalid",
+  "project_id": "990001",
+  "project_key": "SYNTH",
+  "issue_types": ["990002"],
+  "status_ids": ["990010", "990011", "990012"],
+  "evidence_id": "990010",
+  "done_id": "990011",
+  "humans": ["fixture-human-owner"]
+}

@@ -1,0 +1,9 @@
+[project]
+name = "jira-evidence-watcher-offline"
+version = "0.1.0"
+description = "Synthetic-only Jira history and disposable SQLite simulation"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+# No entry point, installation hook, daemon, client or operational configuration.
+# Run the source tests directly with the Python 3.12 standard library.

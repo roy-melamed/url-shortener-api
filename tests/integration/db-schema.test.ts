@@ -137,7 +137,9 @@ describeDb('schema against live Postgres (TEST_DATABASE_URL set)', () => {
     ).rejects.toMatchObject({ code: '23514' });
     // A 3-char code is rejected by the char(2) width constraint before the CHECK.
     await expect(
-      q(`INSERT INTO country_totals (link_id, country_code, count) VALUES ($1, 'USA', 1)`, [linkId]),
+      q(`INSERT INTO country_totals (link_id, country_code, count) VALUES ($1, 'USA', 1)`, [
+        linkId,
+      ]),
     ).rejects.toMatchObject({ code: '22001' }); // string_data_right_truncation
   });
 
@@ -150,12 +152,20 @@ describeDb('schema against live Postgres (TEST_DATABASE_URL set)', () => {
 
   it('dedups click_event_dedup on repeated event_id (§13-c1)', async () => {
     // ON CONFLICT DO NOTHING → same event_id twice yields one row.
-    await q(`INSERT INTO click_event_dedup (event_id) VALUES ('01EVENTDUP') ON CONFLICT DO NOTHING`);
-    await q(`INSERT INTO click_event_dedup (event_id) VALUES ('01EVENTDUP') ON CONFLICT DO NOTHING`);
-    const { rows } = await q(`SELECT count(*)::int AS n FROM click_event_dedup WHERE event_id = '01EVENTDUP'`);
+    await q(
+      `INSERT INTO click_event_dedup (event_id) VALUES ('01EVENTDUP') ON CONFLICT DO NOTHING`,
+    );
+    await q(
+      `INSERT INTO click_event_dedup (event_id) VALUES ('01EVENTDUP') ON CONFLICT DO NOTHING`,
+    );
+    const { rows } = await q(
+      `SELECT count(*)::int AS n FROM click_event_dedup WHERE event_id = '01EVENTDUP'`,
+    );
     expect(rows[0].n).toBe(1);
     // A plain INSERT of the same id is rejected by the PK.
-    await expect(q(`INSERT INTO click_event_dedup (event_id) VALUES ('01EVENTDUP')`)).rejects.toMatchObject({
+    await expect(
+      q(`INSERT INTO click_event_dedup (event_id) VALUES ('01EVENTDUP')`),
+    ).rejects.toMatchObject({
       code: '23505',
     });
   });
@@ -171,14 +181,24 @@ describeDb('schema against live Postgres (TEST_DATABASE_URL set)', () => {
     );
     const linkId = l.rows[0].id as string;
     // Seed every analytics table for this link.
-    await q(`INSERT INTO click_buckets_daily (link_id, day, count) VALUES ($1, '2026-10-29', 3)`, [linkId]);
+    await q(`INSERT INTO click_buckets_daily (link_id, day, count) VALUES ($1, '2026-10-29', 3)`, [
+      linkId,
+    ]);
     await q(
       `INSERT INTO referrer_buckets_daily (link_id, day, referrer_host, count) VALUES ($1, '2026-10-29', 'example.com', 3)`,
       [linkId],
     );
-    await q(`INSERT INTO country_buckets_daily (link_id, day, country_code, count) VALUES ($1, '2026-10-29', 'US', 3)`, [linkId]);
-    await q(`INSERT INTO referrer_totals (link_id, referrer_host, count) VALUES ($1, 'example.com', 3)`, [linkId]);
-    await q(`INSERT INTO country_totals (link_id, country_code, count) VALUES ($1, 'US', 3)`, [linkId]);
+    await q(
+      `INSERT INTO country_buckets_daily (link_id, day, country_code, count) VALUES ($1, '2026-10-29', 'US', 3)`,
+      [linkId],
+    );
+    await q(
+      `INSERT INTO referrer_totals (link_id, referrer_host, count) VALUES ($1, 'example.com', 3)`,
+      [linkId],
+    );
+    await q(`INSERT INTO country_totals (link_id, country_code, count) VALUES ($1, 'US', 3)`, [
+      linkId,
+    ]);
     await q(`INSERT INTO click_event_dedup (event_id) VALUES ('01CASCADEEVT')`);
 
     // Delete the account.
@@ -199,16 +219,22 @@ describeDb('schema against live Postgres (TEST_DATABASE_URL set)', () => {
       expect(r.rows[0].n, `${t} should be cascade-deleted`).toBe(0);
     }
     // Slug reservation NOT released (AD-5).
-    const slugRow = await q(`SELECT count(*)::int AS n FROM slug_reservations WHERE slug = $1`, [slug]);
+    const slugRow = await q(`SELECT count(*)::int AS n FROM slug_reservations WHERE slug = $1`, [
+      slug,
+    ]);
     expect(slugRow.rows[0].n).toBe(1);
     // Dedup row survives (bare token, no FK — purged at 7 days, not on delete).
-    const dedup = await q(`SELECT count(*)::int AS n FROM click_event_dedup WHERE event_id = '01CASCADEEVT'`);
+    const dedup = await q(
+      `SELECT count(*)::int AS n FROM click_event_dedup WHERE event_id = '01CASCADEEVT'`,
+    );
     expect(dedup.rows[0].n).toBe(1);
   });
 
   it('links.user_id is NOT NULL (AD-4: anonymous create forbidden)', async () => {
     await expect(
-      q(`INSERT INTO links (user_id, slug, destination_url) VALUES (NULL, 'nonullslug', 'https://x.com')`),
+      q(
+        `INSERT INTO links (user_id, slug, destination_url) VALUES (NULL, 'nonullslug', 'https://x.com')`,
+      ),
     ).rejects.toMatchObject({ code: '23502' }); // not_null_violation
   });
 });

@@ -80,12 +80,7 @@ export class AppError extends Error {
   readonly code: ErrorCode;
   readonly details?: ErrorDetail[];
 
-  constructor(
-    statusCode: number,
-    code: ErrorCode,
-    message: string,
-    details?: ErrorDetail[],
-  ) {
+  constructor(statusCode: number, code: ErrorCode, message: string, details?: ErrorDetail[]) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;

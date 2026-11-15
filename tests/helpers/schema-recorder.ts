@@ -55,7 +55,11 @@ export function recordMigration(up: (pgm: MigrationBuilder) => void): RecordedSc
   };
 
   const pgm = {
-    createTable(name: string, columns: ColumnDefs, options?: { constraints?: Record<string, unknown> }) {
+    createTable(
+      name: string,
+      columns: ColumnDefs,
+      options?: { constraints?: Record<string, unknown> },
+    ) {
       const cols: RecordedColumn[] = Object.entries(columns).map(([colName, def]) => {
         const d = (typeof def === 'string' ? { type: def } : def) as Record<string, unknown>;
         return { name: colName, ...d } as RecordedColumn;
