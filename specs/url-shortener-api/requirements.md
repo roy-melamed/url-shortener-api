@@ -40,7 +40,8 @@ This document translates the approved PRD into clear, complete, testable softwar
 - Basic bounded rate limiting (baseline 100 requests/minute) with a testable 429 contract; CAPTCHA on link creation is **deferred by PO-2026-11-15**.
 - Single-resource endpoints only (no bulk operations).
 - Public deployment on the existing Oracle Cloud VM/infrastructure, reusing what exists and avoiding new infrastructure/resource creation; structured JSON logging, health checks, metrics, OpenTelemetry tracing, and basic alerting. Exact runtime/resource mapping remains architecture/inventory work.
-- **Historical AD-16/AD-17 records remain preserved in §8.0.** The active PO amendment requires reuse of existing Oracle infrastructure and no new resources, but does not assert unverified OS, container, database, Redis, proxy, backup, or public-ingress details. Architecture must reconcile the existing inventory before implementation.
+- **AD-17 obligations remain active under PO-2026-11-15:** daily encrypted off-VM backups with 7-day retention, PostgreSQL globals and both approved databases, restore testing, least-privilege backup credentials; Redis Streams click transport with event deduplication, retries/DLQ, and no per-click synchronous DB write; the existing email provider; and GitHub Actions manual deployment approval. These requirements do not authorize creation of an OCI bucket, Redis service, email provider, or other resource. Inventory must verify whether approved existing resources satisfy them.
+- **Conflict rule:** if inventory shows that an AD-17 dependency is unavailable (for example, no existing OCI bucket or Redis service), the requirement remains active and deployment is blocked pending Roy's minimum decision: authorize an existing-resource exception, authorize creation of the specific missing resource, or approve a dated deferral with explicit residual risk. No such conflict is resolved or inferred here.
 
 ### 3.2 Out of scope (v2+) — per PRD §4 Non-Goals and §8
 
@@ -64,11 +65,11 @@ This document translates the approved PRD into clear, complete, testable softwar
 |---|---|
 | **Auth** | Dual auth: API keys (Bearer) + JWT (FR-1.3). Email verification required before any link creation (FR-1.2). All link creation is authenticated — no anonymous `POST /links` (design §11 AD-4). Per-user ownership checks on all mutations (FR-3.2, NFR-5). |
 | **Redirects** | Fast redirect, direct, no intermediate page (FR-4.1). Default **302 + `Cache-Control: no-store`** (design §11 AD-1 — Q8 resolved). `410 Gone` expired (FR-4.2), `404 Not Found` unknown/deleted (FR-4.3), JSON error bodies (FR-7.2/7.3). **No CDN/edge layer in front** (AD-1/AD-2/AD-7). |
-| **Analytics / privacy** | No visitor IPs or PII stored; aggregate counts only; individual click events purged within 30 days (FR-5.2, NFR-4). Country breakdown via transient request-time GeoIP — IP never persisted or logged (design §11 AD-2 — Q4 resolved). **Aggregation pipeline is asynchronous (AD-17: Redis Streams transport); redirect serving shall perform no per-click synchronous database write.** |
+| **Analytics / privacy** | No visitor IPs or PII stored; aggregate counts only; individual click events purged within 30 days (FR-5.2, NFR-4). Country breakdown via transient request-time GeoIP — IP never persisted or logged (design §11 AD-2 — Q4 resolved). **Aggregation pipeline is asynchronous (AD-17: Redis Streams transport); redirect serving shall perform no per-click synchronous database write. Inventory must verify the existing transport; no new Redis resource is implied.** |
 | **QR codes** | Generated for the requesting user's own links; PNG and SVG output (FR-6). Payload = short URL, `?format=png|svg`, no styling options (design §11 AD-15 — Q7 resolved). |
 | **Rate limiting / abuse** | Basic bounded 100 requests/minute per user/key baseline, uniform with `429` + retry guidance (FR-8). Implementation is intentionally implementation-neutral under PO-2026-11-15; per-process or single-instance limitations must be disclosed unless an existing shared mechanism is justified. CAPTCHA is deferred, not deleted. |
 | **Observability** | Structured JSON logs for all requests, health checks, metrics (request rate, latency, error rate, redirects), OpenTelemetry tracing, basic error alerting; lightweight and local-dev friendly; tool choice belongs to the Architect (FR-10). |
-| **Platform** | **PO-2026-11-15:** public demonstration uses the existing Oracle Cloud VM/infrastructure, reusing what exists and avoiding new infrastructure/resource creation. Exact runtime, database, proxy, backup, network, and capacity mapping is architecture/inventory work. Historical AWS and AD-16/AD-17 details remain preserved in §8.0 and are not silently deleted. |
+| **Platform** | **PO-2026-11-15** supersedes AWS deployment for the active demonstration and requires reuse of existing Oracle VM/infrastructure with no new resource creation. AD-16/AD-17 behavior and acceptance remain active: backup/restore, Redis Streams click transport, existing email provider, and manual deployment approval. Exact availability of each existing dependency is an inventory question; missing dependencies require Roy's decision under the conflict rule above. |
 
 ---
 
@@ -204,7 +205,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | ID | Requirement |
 |---|---|
 | FR-9.1 | The application **shall** be publicly deployed on the existing Oracle Cloud VM/infrastructure selected by the PO, reusing what exists and avoiding new infrastructure/resource creation. Runtime/container/process choices and health/restart behavior remain architecture-dependent and are not prescribed here. |
-| FR-9.2 | Persistent application data **shall** use existing approved data resources where verified, with no destructive recreation or modification without separate human approval; secrets and endpoint/credential literals shall not be committed. Exact database, volume, backup, and network details remain architecture/inventory work. |
+| FR-9.2 | Persistent application data **shall** use existing approved data resources where verified, with no destructive recreation or modification without separate human approval; secrets and endpoint/credential literals shall not be committed. AD-17 backup obligations remain active: daily encrypted off-VM backup, 7-day retention, globals plus both approved databases, least-privilege credentials, and restore testing. Exact resource availability and operational particulars require inventory; no new backup resource is implied. |
 | FR-9.3 | The solution **shall** remain runnable locally for development from the same requirements-defined product surface. No cloud-provider-specific implementation detail is added by this amendment. |
 
 **Acceptance criteria (EARS):**
@@ -212,7 +213,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 - **AC-FR-9.1:** Before deployment, evidence shall identify the existing Oracle target and exact release artifact mapping. No new infrastructure/resource creation or unapproved destructive change shall occur.
 - **AC-FR-9.2:** Before deployment, evidence shall verify the existing data/resource mapping, approved network boundary, and absence of committed endpoint/credential literals. Unknown inventory is a blocker, not a pass.
 - **AC-FR-9.3:** A developer shall be able to run the application locally against a local PostgreSQL instance.
-- **AC-FR-9.4:** Any existing backup/restore obligation selected during architecture reconciliation shall have explicit evidence and ownership before deployment; this amendment does not invent a backup implementation or claim restore testing passed.
+- **AC-FR-9.4:** Before deployment, the approved backup set shall be covered by daily encrypted off-VM backups with 7-day retention, globals plus both approved databases, least-privilege credentials, and restore-test evidence. If the required existing backup resource is unavailable, this criterion is BLOCKED pending Roy's conflict decision; no unexecuted backup or restore check passes.
 
 ### FR-10: Observability
 
@@ -245,7 +246,7 @@ Sub-decisions (all resolved via design §11): country detection = transient requ
 | NFR-4 | Privacy | No visitor IPs or PII stored; aggregate counts only; individual click events purged within **30 days**. |
 | NFR-5 | Security | Bounded rate limiting; email verification before link creation; per-user ownership checks; API key/JWT auth; input validation, password hashing, and secret protection. CAPTCHA is deferred by PO-2026-11-15 and remains historical scope, not an active acceptance claim. |
 | NFR-6 | Data lifecycle | Users can delete their links and associated analytics at any time. |
-| NFR-7 | Portability | **Revised 2026-11-02 (AD-16):** runs against a **local PostgreSQL for development** and against the **containerized PostgreSQL 16 (`url8-pg`) on the confirmed Oracle Cloud VM** from a **single codebase**, with container-image parity between the local and deployed forms; application code retains **no cloud-vendor lock-in** (the local/exportable posture replaces the former "serverless-friendly; works against AWS RDS" wording). |
+| NFR-7 | Portability | Runs against a local PostgreSQL for development and the verified existing Oracle data resource from a single codebase; exact database/container identity and image parity are inventory/architecture concerns, not invented by this amendment. |
 | NFR-8 | Observability | JSON logs, metrics, health checks, OpenTelemetry tracing, basic alerting (see FR-10). |
 | NFR-9 | Extensibility | Single shared domain now; custom domains designed for in a later version (v2). |
 
@@ -383,10 +384,11 @@ The full dated amendment, rationale, acceptance evidence, Jira update plan, and 
 ### Active MVP demonstration requirements
 
 - **PO-MVP-1:** Demonstrate SDD, autonomous multi-agent orchestration, RAG/vector search, LLM integrations, evaluations, and a functional REST URL-shortener API. Corpus, vector store, model/provider, thresholds, and user flows remain unselected until separately specified.
-- **PO-MVP-2:** Use existing Oracle Cloud VM/infrastructure for public deployment; reuse what exists and create no new infrastructure/resources. Exact target mapping remains architecture/inventory work.
+- **PO-MVP-2:** Use existing Oracle Cloud VM/infrastructure for public deployment; reuse what exists and create no new infrastructure/resources. Exact target mapping remains architecture/inventory work. AD-17 backup/restore, Redis Streams click transport, existing email provider, and manual deployment approval obligations remain active; unavailable dependencies require Roy's explicit decision.
 - **PO-MVP-3:** Active account scope is email/password registration/login, email verification, JWT authentication, and API keys. Google/GitHub social login is deferred.
 - **PO-MVP-4:** Retain access control, validation, password hashing, secret protection, bounded rate limiting, ordinary security regression tests, and PR #19's encoded-path fix/regressions. CAPTCHA and formal penetration testing are deferred, not deleted or passed.
 - **PO-MVP-5:** Retain independent review, CI, post-merge QA, and Roy's approval bound to the actual release artifact before deployment. Repository exact-head gates in `AGENTS.md` remain unchanged.
+- **AD-17 reconciliation:** Daily encrypted off-VM backups with 7-day retention, globals plus both approved databases, restore testing, least-privilege credentials, Redis Streams with deduplication/retries/DLQ and no per-click synchronous DB write, existing email provider, and manual deployment approval remain active. No new bucket, Redis service, provider, or other resource may be created without separate authorization. If inventory shows a missing dependency, the requirement remains active and deployment is blocked pending Roy's minimum exception/creation/dated-deferral decision.
 
 ### Explicit non-claims
 

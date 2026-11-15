@@ -7,11 +7,11 @@
 
 ## 1. Product Owner decision
 
-The MVP demonstration shall demonstrate specification-driven development, autonomous multi-agent orchestration, RAG/vector search, LLM integrations, evaluations, and a functional REST URL-shortener API. It shall be publicly deployed on the existing Oracle Cloud VM/infrastructure, reusing what exists and avoiding new infrastructure/resource creation and over-engineered scaling.
+The MVP demonstration shall demonstrate specification-driven development, autonomous multi-agent orchestration, RAG/vector search, LLM integrations, evaluations, and a functional REST URL-shortener API. It shall be publicly deployed on the existing Oracle Cloud VM/infrastructure, reusing what exists and avoiding new infrastructure/resource creation and over-engineered scaling. This PO decision supersedes the active AWS deployment target, but does not cancel the already approved 2026-11-02 AD-16/AD-17 safety and data-integrity obligations.
 
 The active account scope is email/password registration and login, email verification, JWT authentication, and API keys for programmatic access. Google/GitHub social login is deferred. CAPTCHA and formal penetration testing are deferred. Basic rate limiting, input validation, password hashing, secret protection, ordinary security regression tests, independent code review, CI, post-merge QA, and Roy's exact release-artifact approval before deployment remain in scope.
 
-No deployment, credential/secret operation, infrastructure change, Jira change, or application/architecture implementation is authorized by this amendment.
+No deployment, credential/secret operation, infrastructure change, Jira change, or application/architecture implementation is authorized by this amendment. Existing-resource inventory is required; this document does not assert that an OCI bucket, Redis service, or any other dependency exists.
 
 ## 2. Requirement reconciliation
 
@@ -21,6 +21,7 @@ No deployment, credential/secret operation, infrastructure change, Jira change, 
 - `FR-2.1`–`FR-2.6`, `FR-3.1`–`FR-3.3`, `FR-4`–`FR-7`: link creation/management, ownership, redirects, privacy-preserving analytics, QR, and REST/error behavior remain active, subject to existing unresolved product questions.
 - `FR-8.1`–`FR-8.2` and their acceptance criteria remain active as a minimal, testable abuse limit and `429` contract. The specific PostgreSQL weighted sliding-window architecture in design `D-10`/`AD-7` is not a product requirement in this amendment.
 - `NFR-5` remains active for authentication, email verification, ownership, input validation, password hashing, secrets, and basic abuse limiting. CAPTCHA is expressly deferred below.
+- **AD-17 remains active:** daily encrypted off-VM backups, 7-day retention, PostgreSQL globals and both approved databases, restore testing, least-privilege backup credentials; Redis Streams click transport with deduplication, retries/DLQ, and no per-click synchronous DB write; the existing email provider; and GitHub Actions manual deployment approval. The PO's no-new-resource rule limits implementation to existing resources and does not weaken these behaviors.
 - The PR #19 encoded-path bypass fix and targeted regression tests remain required. No scope reduction or alternate raw-path interpretation is approved by this amendment.
 
 ### Superseded or deferred requirements
@@ -31,12 +32,13 @@ No deployment, credential/secret operation, infrastructure change, Jira change, 
 | `FR-2.7`, `AC-FR-2.7`, `AC-11`, and CAPTCHA portions of `NFR-5` | **CAPTCHA deferred, not deleted** | PO selected basic rate limiting without CAPTCHA for this MVP. The requirement remains historical traceability and must not be reported as verified/passed. |
 | `FR-8.1` implementation detail in design `D-10`/`AD-7` | **Design constraint relaxed** | Active requirement is bounded and testable rate limiting; implementation may be simple and reversible. Per-process limits may not provide multi-instance/global enforcement. A shared mechanism may be used only if already present and justified; no new infrastructure is implied. |
 | PRD serverless/AWS platform text (`PRD.md:37`, `131-132`, `170`) and superseded AWS design decisions | **Superseded for active MVP target; preserved historically** | PO selected the existing Oracle Cloud VM/infrastructure. No AWS migration, deletion, or ticket-history rewrite is authorized. |
+| 2026-11-02 AD-16/AD-17 Oracle safety/data obligations | **Retained active; inventory-gated** | The PO changed the deployment target and resource-creation policy, not backup, restore, click-transport, email, or manual-approval behavior. If inventory lacks an existing OCI bucket, Redis service, or other dependency, the requirement remains active and deployment is blocked pending Roy's minimum exception/creation/dated-deferral decision. |
 | Formal penetration testing / broad adversarial simulation | **Deferred, not deleted** | No reviewed PRD/spec/Jira/AGENTS artifact mandates a formal pentest or broad red-team exercise. Focused ordinary regression tests remain required, including PR #19's encoded-path cases. |
 
 ### New amendment requirements (stable amendment IDs)
 
 - **PO-MVP-1 — Demonstration scope:** The demonstration shall provide evidence of SDD and autonomous multi-agent orchestration, RAG/vector search, LLM integrations, evaluations, and a functional REST URL-shortener API. No corpus, model/provider, evaluation threshold, or user flow is selected by this amendment.
-- **PO-MVP-2 — Public target:** The demonstration shall use the existing Oracle Cloud VM/infrastructure and shall not require creation of new infrastructure/resources. The exact existing resource mapping and runtime behavior are architecture/inventory work, not invented here.
+- **PO-MVP-2 — Public target:** The demonstration shall use the existing Oracle Cloud VM/infrastructure and shall not require creation of new infrastructure/resources. The exact existing resource mapping and runtime behavior are architecture/inventory work, not invented here. AD-17 backup, Redis Streams, existing-email, and manual-approval obligations remain active; unavailable dependencies require Roy's explicit decision.
 - **PO-MVP-3 — Active account/auth scope:** The MVP shall support email/password registration and login, email verification, JWT authentication, and API keys for programmatic access. Social login is not part of the active MVP acceptance path.
 - **PO-MVP-4 — Security baseline:** The MVP shall retain access control/ownership, input validation, password hashing, secret protection, basic bounded rate limiting, and ordinary security regression tests. CAPTCHA and formal penetration testing are deferred and remain explicitly unexecuted until separately approved.
 - **PO-MVP-5 — Release safeguards:** Independent code review, required CI, post-merge QA, and Roy's human approval bound to the actual immutable release artifact shall precede deployment. This does not authorize a new AWS pipeline or weaken repository exact-head gates.
@@ -46,6 +48,8 @@ No deployment, credential/secret operation, infrastructure change, Jira change, 
 For `PO-MVP-1`, evidence shall identify the demonstration artifacts and executed checks for each named goal without asserting an unapproved corpus, provider, threshold, or flow. The exact artifact, commands, results, and limitations belong in the later QA/evidence report.
 
 For `PO-MVP-2`, evidence shall identify the existing target mapping and show that no new infrastructure/resource was created or deployed as part of this amendment. Unknown inventory remains a blocker, not a pass.
+
+For the retained AD-17 obligations, evidence shall verify the existing backup destination and restore test, backup scope/retention/credential least privilege, existing Redis Streams transport and dedup/retry/DLQ behavior, existing email-provider path, and manual deployment approval. If any dependency is absent, the exact conflict shall be recorded and deployment shall remain blocked pending Roy's decision; no resource creation is implied.
 
 For `PO-MVP-3` and `PO-MVP-4`, tests shall cover registration/login, verification gating, JWT/API-key authentication, ownership denial, malformed/invalid input, password-hash behavior, secret non-leakage, bounded rate-limit behavior, and the PR #19 encoded-path regression cases. CAPTCHA and formal pentesting shall be labeled deferred/unexecuted.
 
@@ -59,8 +63,10 @@ No Jira issue is changed by this PR. After specification and architecture review
 2. **URL-10:** retain the minimal rate-limit contract and its tests; mark CAPTCHA production/live-vendor work deferred for the PO MVP. Preserve URL-10's completed limiter evidence and do not rewrite its historical acceptance.
 3. **URL-25 (if active):** defer/close the live CAPTCHA adapter path only through a normal Jira decision transition; preserve its blocked/vendor history and do not claim AC-11 fully passed.
 4. **URL-19:** AWS infrastructure scope is superseded for the active OCI target, but completed AWS design/code/evidence remains historical. Do not delete or rewrite the issue; add a superseded-for-active-MVP note only if Michael obtains the valid transition/update authority.
-5. **URL-20:** AWS CI/CD scope is superseded for active deployment, while completed CI/release evidence remains preserved. Do not repurpose it as an OCI ticket. Any OCI-specific work requires a separate approved scope after architecture reconciliation.
-6. **Adjacent active security/release tickets:** update only after the exact requirement IDs and acceptance evidence are reconciled. No ticket should claim CAPTCHA, social login, pentesting, or deployment success when deferred/unexecuted.
+5. **URL-20:** AWS CI/CD scope is superseded for active deployment, while completed CI/release evidence remains preserved. Do not repurpose it as an OCI ticket. Any OCI-specific work requires a separate approved scope after architecture reconciliation; the manual deployment approval requirement remains active.
+6. **URL-27:** preserve its completed backup implementation/evidence and acceptance history. Do not downgrade, delete, or reinterpret it as optional merely because the PO prohibits new resources; verify whether its existing destination satisfies AD-17.
+7. **AD-17-dependent active work:** add explicit acceptance/blocks for existing-resource inventory, backup/restore, Redis Streams transport, existing email provider, and manual approval. If an existing OCI bucket/Redis dependency is absent, record the exact conflict and route only the minimum decision to Roy.
+8. **Adjacent active security/release tickets:** update only after the exact requirement IDs and acceptance evidence are reconciled. No ticket should claim CAPTCHA, social login, pentesting, or deployment success when deferred/unexecuted.
 
 This plan intentionally distinguishes **superseded active scope** from **completed historical work**. It does not create tickets, transition issues, edit acceptance criteria, or alter Jira history.
 
