@@ -58,11 +58,15 @@ describe('dev entrypoint module resolution (AC1/AC2 guard)', () => {
         // Node native resolves the specifier literally — the target must exist.
         const resolved = path.resolve(path.dirname(file), specifier);
         if (!existsSync(resolved)) {
-          problems.push(`${path.relative(repoRoot, file)} -> '${specifier}' (missing ${path.relative(repoRoot, resolved)})`);
+          problems.push(
+            `${path.relative(repoRoot, file)} -> '${specifier}' (missing ${path.relative(repoRoot, resolved)})`,
+          );
         }
         // The dev runtime only strips types from `.ts`; enforce the convention.
         if (!specifier.endsWith('.ts')) {
-          problems.push(`${path.relative(repoRoot, file)} -> '${specifier}' (must use .ts specifier for the native dev runtime)`);
+          problems.push(
+            `${path.relative(repoRoot, file)} -> '${specifier}' (must use .ts specifier for the native dev runtime)`,
+          );
         }
       }
     }
@@ -71,21 +75,17 @@ describe('dev entrypoint module resolution (AC1/AC2 guard)', () => {
 
   it('boots the real dev entrypoint and serves GET /healthz 200', async () => {
     const port = 20000 + Math.floor(Math.random() * 20000);
-    const child = spawn(
-      process.execPath,
-      ['--experimental-strip-types', 'src/index.ts'],
-      {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          NODE_ENV: 'development',
-          LOG_LEVEL: 'silent',
-          PORT: String(port),
-          DATABASE_URL: 'postgres://smoke:smoke@localhost:5432/smoke',
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
+    const child = spawn(process.execPath, ['--experimental-strip-types', 'src/index.ts'], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        LOG_LEVEL: 'silent',
+        PORT: String(port),
+        DATABASE_URL: 'postgres://smoke:smoke@localhost:5432/smoke',
       },
-    );
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {

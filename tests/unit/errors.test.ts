@@ -41,9 +41,7 @@ describe('error envelope (FR-7.2, design §5.1)', () => {
 
 describe('AppError', () => {
   it('carries status, code and details', () => {
-    const error = new AppError(409, 'CONFLICT', 'Slug taken.', [
-      { field: 'slug', issue: 'taken' },
-    ]);
+    const error = new AppError(409, 'CONFLICT', 'Slug taken.', [{ field: 'slug', issue: 'taken' }]);
     expect(error.name).toBe('AppError');
     expect(error.statusCode).toBe(409);
     expect(error.code).toBe('CONFLICT');
