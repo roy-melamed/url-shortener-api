@@ -8,6 +8,8 @@ import { ArgonPasswords, JoseAccessTokens } from '../../src/auth/crypto.ts';
 import { PostgresAccountStore } from '../../src/auth/postgres-store.ts';
 import { createMailHogMailer } from '../../src/platform/verification-mail.ts';
 import type { VerificationMessage } from '../../src/auth/contracts.ts';
+import { ApiKeys } from '../../src/auth/api-keys.ts';
+import { PostgresApiKeyStore } from '../../src/auth/postgres-api-key-store.ts';
 
 const databaseUrl = process.env.TEST_ACCOUNT_DATABASE_URL;
 const suite = databaseUrl ? describe : describe.skip;
@@ -141,6 +143,47 @@ suite('real PostgreSQL account transactions and URL-8 cascade contract', () => {
     expect(
       (await pool.query('SELECT email_verified_at FROM users')).rows[0].email_verified_at,
     ).toBeNull();
+  });
+  it('API keys persist hashes and enforce prefix uniqueness, ownership, usage and revocation', async () => {
+    const owner = randomUUID(),
+      other = randomUUID();
+    await pool.query('INSERT INTO users (id, email) VALUES ($1, $2), ($3, $4)', [
+      owner,
+      `${owner}@example.invalid`,
+      other,
+      `${other}@example.invalid`,
+    ]);
+    const store = new PostgresApiKeyStore(pool);
+    const apiKeys = new ApiKeys(store);
+    expect(await store.accountExists(owner)).toBe(true);
+    const created = await apiKeys.create(owner, { name: 'disposable' }, now);
+    const rows = await pool.query('SELECT * FROM api_keys WHERE id = $1', [created.id]);
+    expect(JSON.stringify(rows.rows)).not.toContain(created.key);
+    expect(rows.rows[0].key_hash).toMatch(/^[0-9a-f]{64}$/);
+    const record = (await store.byPrefix(created.keyPrefix))!;
+    expect(await store.insert({ ...record, id: randomUUID() })).toBe(false);
+    expect(await apiKeys.list(other)).toEqual([]);
+    await expect(apiKeys.revoke(other, created.id, now)).rejects.toMatchObject({ statusCode: 404 });
+    expect((await apiKeys.verify(created.key, now)).userId).toBe(owner);
+    expect((await apiKeys.list(owner))[0]!.lastUsedAt).toEqual(now);
+    await apiKeys.revoke(owner, created.id, now);
+    await expect(apiKeys.verify(created.key, now)).rejects.toMatchObject({ statusCode: 401 });
+    expect(await store.use(created.id, now)).toBe(false);
+  });
+  it('account deletion cascades issued API keys and forbids continued authorization', async () => {
+    const owner = randomUUID();
+    await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)', [
+      owner,
+      `${owner}@example.invalid`,
+    ]);
+    const store = new PostgresApiKeyStore(pool);
+    const apiKeys = new ApiKeys(store);
+    const created = await apiKeys.create(owner, { name: 'cascade' }, now);
+    await pool.query('DELETE FROM users WHERE id = $1', [owner]);
+    expect(await store.accountExists(owner)).toBe(false);
+    expect(await store.byPrefix(created.keyPrefix)).toBeNull();
+    expect(await store.use(created.id, now)).toBe(false);
+    await expect(apiKeys.verify(created.key, now)).rejects.toMatchObject({ statusCode: 401 });
   });
   it('hard deletion removes owned identities/links/all five aggregates; preserves slug and other account', async () => {
     const account = await service.register(input);
