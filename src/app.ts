@@ -28,6 +28,9 @@ import { createLogger, type AppLogger } from './platform/logger.ts';
 import { ulid } from './platform/ulid.ts';
 import { registerPasswordAccountRoutes } from './auth/routes.ts';
 import type { PasswordAccounts } from './auth/accounts.ts';
+import { ApiKeys } from './auth/api-keys.ts';
+import { BearerAuthentication } from './auth/bearer-auth.ts';
+import { registerApiKeyRoutes } from './auth/api-key-routes.ts';
 import {
   AppError,
   buildErrorEnvelope,
@@ -41,6 +44,8 @@ export interface BuildAppOptions {
   logger?: AppLogger;
   /** Explicit account dependencies; no production key/mail/pool defaults. */
   accounts?: PasswordAccounts;
+  /** Explicit shared URL-9 verifier/store injection; no secret discovery. */
+  bearerAuth?: { authentication: BearerAuthentication; apiKeys: ApiKeys };
 }
 
 interface MappedError {
@@ -99,7 +104,12 @@ function mapError(error: unknown): MappedError {
  * @param options Configuration and optional logger.
  * @returns A ready-to-wire {@link FastifyInstance} (not yet `listen`/`ready`).
  */
-export function buildApp({ config, logger, accounts }: BuildAppOptions): FastifyInstance {
+export function buildApp({
+  config,
+  logger,
+  accounts,
+  bearerAuth,
+}: BuildAppOptions): FastifyInstance {
   // Typed as FastifyBaseLogger so the instance keeps Fastify's default logger
   // generic (the pino AppLogger is structurally assignable to it).
   const baseLogger: FastifyBaseLogger = logger ?? createLogger(config);
@@ -164,6 +174,7 @@ export function buildApp({ config, logger, accounts }: BuildAppOptions): Fastify
   app.get('/healthz', async () => ({ status: 'ok' }));
 
   if (accounts) registerPasswordAccountRoutes(app, accounts);
+  if (bearerAuth) registerApiKeyRoutes(app, bearerAuth.authentication, bearerAuth.apiKeys);
 
   return app;
 }
