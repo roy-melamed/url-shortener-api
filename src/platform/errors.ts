@@ -40,6 +40,7 @@ export interface ErrorBody {
   message: string;
   requestId: string;
   details?: ErrorDetail[];
+  suggestions?: string[];
 }
 
 /** Full error response body. */
@@ -79,12 +80,22 @@ export class AppError extends Error {
   readonly statusCode: number;
   readonly code: ErrorCode;
   readonly details?: ErrorDetail[];
+  readonly suggestions?: string[];
+  readonly retryAfterSeconds?: number;
 
-  constructor(statusCode: number, code: ErrorCode, message: string, details?: ErrorDetail[]) {
+  constructor(
+    statusCode: number,
+    code: ErrorCode,
+    message: string,
+    details?: ErrorDetail[],
+    options: { suggestions?: string[]; retryAfterSeconds?: number } = {},
+  ) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;
     this.details = details;
+    this.suggestions = options.suggestions;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
@@ -101,6 +112,7 @@ export function buildErrorEnvelope(
   message: string,
   requestId: string,
   details?: ErrorDetail[],
+  suggestions?: string[],
 ): ErrorEnvelope {
   return {
     error: {
@@ -108,6 +120,7 @@ export function buildErrorEnvelope(
       message,
       requestId,
       ...(details && details.length > 0 ? { details } : {}),
+      ...(suggestions ? { suggestions } : {}),
     },
   };
 }

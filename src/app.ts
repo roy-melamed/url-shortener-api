@@ -31,6 +31,10 @@ import type { PasswordAccounts } from './auth/accounts.ts';
 import { ApiKeys } from './auth/api-keys.ts';
 import { BearerAuthentication } from './auth/bearer-auth.ts';
 import { registerApiKeyRoutes } from './auth/api-key-routes.ts';
+import type { LinkCreation } from './links/create.ts';
+import { registerLinkCreation } from './links/routes.ts';
+import type { InProcessRequestLimiter } from './platform/request-limiter.ts';
+import { processRequestLimiter } from './platform/process-request-limiter.ts';
 import {
   AppError,
   buildErrorEnvelope,
@@ -46,6 +50,9 @@ export interface BuildAppOptions {
   accounts?: PasswordAccounts;
   /** Explicit shared URL-9 verifier/store injection; no secret discovery. */
   bearerAuth?: { authentication: BearerAuthentication; apiKeys: ApiKeys };
+  links?: LinkCreation;
+  /** Explicit process-owned shared override for tests/custom composition. */
+  requestLimiter?: InProcessRequestLimiter;
 }
 
 interface MappedError {
@@ -53,6 +60,8 @@ interface MappedError {
   code: ReturnType<typeof codeForStatus>;
   message: string;
   details?: ErrorDetail[];
+  suggestions?: string[];
+  retryAfterSeconds?: number;
 }
 
 /**
@@ -67,6 +76,8 @@ function mapError(error: unknown): MappedError {
       code: error.code,
       message: error.message,
       details: error.details,
+      suggestions: error.suggestions,
+      retryAfterSeconds: error.retryAfterSeconds,
     };
   }
 
@@ -109,7 +120,11 @@ export function buildApp({
   logger,
   accounts,
   bearerAuth,
+  links,
+  requestLimiter = processRequestLimiter,
 }: BuildAppOptions): FastifyInstance {
+  if (links && !bearerAuth)
+    throw new Error('Link creation requires trusted bearer authentication.');
   // Typed as FastifyBaseLogger so the instance keeps Fastify's default logger
   // generic (the pino AppLogger is structurally assignable to it).
   const baseLogger: FastifyBaseLogger = logger ?? createLogger(config);
@@ -148,12 +163,22 @@ export function buildApp({
   // Consistent error envelope (FR-7.2, design §5.1).
   app.setErrorHandler((error, request, reply) => {
     const mapped = mapError(error);
+    if (mapped.retryAfterSeconds !== undefined)
+      reply.header('Retry-After', String(mapped.retryAfterSeconds));
     if (mapped.statusCode >= 500) {
       request.log.error({ err: error }, 'unhandled error');
     }
     reply
       .status(mapped.statusCode)
-      .send(buildErrorEnvelope(mapped.code, mapped.message, request.id, mapped.details));
+      .send(
+        buildErrorEnvelope(
+          mapped.code,
+          mapped.message,
+          request.id,
+          mapped.details,
+          mapped.suggestions,
+        ),
+      );
   });
 
   // JSON 404 envelope for unmatched routes (design §3.1, §5.1).
@@ -175,6 +200,8 @@ export function buildApp({
 
   if (accounts) registerPasswordAccountRoutes(app, accounts);
   if (bearerAuth) registerApiKeyRoutes(app, bearerAuth.authentication, bearerAuth.apiKeys);
+  if (links && bearerAuth)
+    registerLinkCreation(app, links, bearerAuth.authentication, requestLimiter);
 
   return app;
 }
