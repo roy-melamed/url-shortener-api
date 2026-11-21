@@ -48,3 +48,4 @@ jobs:
           TEST_ACCOUNT_DATABASE_URL: postgres://postgres@127.0.0.1:5432/account_auth_test
           TEST_ACCOUNT_MAILHOG: 'true'
       - run: npm run build
+      - run: npm run cdk:synth

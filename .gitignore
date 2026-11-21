@@ -10,6 +10,12 @@ cdk.out/
 # Coverage reports
 coverage/
 
+# Job-scoped immutable release payloads and verification scratch (not source)
+/release-candidate/
+/release-payload/
+/release-verification/
+/.release-authorization.json
+
 # Local environment — never commit secrets, endpoints, or credentials
 # (design §6.2: local dev reads a gitignored .env; .env.example holds placeholders only)
 .env

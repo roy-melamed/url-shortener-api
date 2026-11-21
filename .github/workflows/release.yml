@@ -1,0 +1,186 @@
+name: Gated release
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact current main SHA (dispatch is not deployment approval)
+        required: true
+      operation:
+        type: choice
+        options: [release, rollback]
+        default: release
+      previous_artifact_id:
+        description: Rollback only — immutable artifact ID from a successful prior release
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: gated-release
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+    outputs:
+      artifact_id: ${{ steps.selected.outputs.artifact_id }}
+      source_run: ${{ steps.selected.outputs.source_run }}
+      source_sha: ${{ steps.selected.outputs.source_sha }}
+      archive_digest: ${{ steps.selected.outputs.archive_digest }}
+      staging_digest: ${{ steps.policy.outputs.staging_digest }}
+      production_digest: ${{ steps.policy.outputs.production_digest }}
+      staging_runner: ${{ steps.policy.outputs.staging_runner }}
+      production_runner: ${{ steps.policy.outputs.production_runner }}
+      staging_environment: ${{ steps.policy.outputs.staging_environment }}
+      production_environment: ${{ steps.policy.outputs.production_environment }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check:naming
+      - run: npm run typecheck
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - run: npm run check:watcher-offline
+      - run: npm run test:watcher-offline
+      - run: npm test
+      - run: npm run build
+      - run: npm run cdk:synth
+      - id: policy
+        name: Fail closed before referencing protected environments
+        run: node --experimental-strip-types scripts/release-control.ts preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_STAGING_TARGET: ${{ vars.RELEASE_STAGING_TARGET }}
+          RELEASE_PRODUCTION_TARGET: ${{ vars.RELEASE_PRODUCTION_TARGET }}
+      - name: Package the tested immutable assembly and forward migrations
+        if: inputs.operation == 'release'
+        run: |
+          mkdir release-candidate
+          tar -czf release-candidate/payload.tgz cdk.out dist migrations package.json package-lock.json
+          node --experimental-strip-types scripts/release-control.ts manifest
+      - id: upload
+        if: inputs.operation == 'release'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-candidate
+          path: release-candidate/
+          if-no-files-found: error
+          retention-days: 90
+      - id: selected
+        run: node --experimental-strip-types scripts/release-control.ts select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          NEW_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          PREVIOUS_ARTIFACT_ID: ${{ inputs.previous_artifact_id }}
+  staging:
+    needs: candidate
+    runs-on: [self-hosted, linux, '${{ needs.candidate.outputs.staging_runner }}']
+    timeout-minutes: 30
+    environment: ${{ needs.candidate.outputs.staging_environment }}
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify immutable archive digest before extraction
+        run: node --experimental-strip-types scripts/release-control.ts download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ARTIFACT_ID: ${{ needs.candidate.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.candidate.outputs.archive_digest }}
+      - id: target
+        run: node --experimental-strip-types scripts/release-control.ts authorize staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_TARGET: ${{ vars.RELEASE_STAGING_TARGET }}
+          EXPECTED_TARGET_DIGEST: ${{ needs.candidate.outputs.staging_digest }}
+          ARTIFACT_SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+          ARTIFACT_SOURCE_RUN: ${{ needs.candidate.outputs.source_run }}
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ steps.target.outputs.role_arn }}
+          aws-region: ${{ steps.target.outputs.region }}
+          allowed-account-ids: ${{ steps.target.outputs.account }}
+          unset-current-credentials: true
+      - name: Prepare change set → forward migrations → execute traffic change → AC smoke
+        run: node --experimental-strip-types scripts/release-execute.ts staging
+        env:
+          RELEASE_TARGET: ${{ vars.RELEASE_STAGING_TARGET }}
+          EXPECTED_TARGET_DIGEST: ${{ needs.candidate.outputs.staging_digest }}
+          DATABASE_URL: ${{ secrets.RELEASE_DATABASE_URL }}
+          OPERATION: ${{ inputs.operation }}
+  production:
+    needs: [candidate, staging]
+    runs-on: [self-hosted, linux, '${{ needs.candidate.outputs.production_runner }}']
+    timeout-minutes: 30
+    environment: ${{ needs.candidate.outputs.production_environment }}
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify immutable archive digest before extraction
+        run: node --experimental-strip-types scripts/release-control.ts download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ARTIFACT_ID: ${{ needs.candidate.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.candidate.outputs.archive_digest }}
+      - id: target
+        run: node --experimental-strip-types scripts/release-control.ts authorize production
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_TARGET: ${{ vars.RELEASE_PRODUCTION_TARGET }}
+          EXPECTED_TARGET_DIGEST: ${{ needs.candidate.outputs.production_digest }}
+          ARTIFACT_SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+          ARTIFACT_SOURCE_RUN: ${{ needs.candidate.outputs.source_run }}
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ steps.target.outputs.role_arn }}
+          aws-region: ${{ steps.target.outputs.region }}
+          allowed-account-ids: ${{ steps.target.outputs.account }}
+          unset-current-credentials: true
+      - name: Promote the unchanged artifact; never roll DB migrations down
+        run: node --experimental-strip-types scripts/release-execute.ts production
+        env:
+          RELEASE_TARGET: ${{ vars.RELEASE_PRODUCTION_TARGET }}
+          EXPECTED_TARGET_DIGEST: ${{ needs.candidate.outputs.production_digest }}
+          DATABASE_URL: ${{ secrets.RELEASE_DATABASE_URL }}
+          OPERATION: ${{ inputs.operation }}
