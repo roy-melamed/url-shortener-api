@@ -37,10 +37,13 @@ const app = buildApp({
 Use the same `apiKeys` instance for the resolver and routes. These URL-shortener
 service objects live with the application/pool; no global secret state, timer,
 background process or pool is created. The caller owns pool lifecycle. Local
-fixtures inject a test store and generated disposable RSA keys. Default local/
-Lambda entrypoints still have no account/verifier/key/pool defaults: do not infer
-deployment activation or silently discover owner secrets. Like existing account
-routes, key routes are registered only with explicit dependencies.
+fixtures inject a test store and generated disposable RSA keys. Local/Lambda
+entrypoints now share [production runtime composition](http-runtime-composition.md):
+actual PostgreSQL stores and a public-only verifier use owner-injected settings,
+never fallback/generated keys or signing capability. Account issuance/refresh
+composition remains unchanged and outside that corrective fix. Runtime wiring is
+not evidence of deployment or human acceptance; key routes still use the explicit
+dependency registration contract shown above.
 
 ## Management HTTP contract
 

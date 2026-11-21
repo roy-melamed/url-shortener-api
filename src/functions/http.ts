@@ -20,18 +20,17 @@
  * local runtime never uses this factory (it uses `src/index.ts` + `listen`).
  */
 import awsLambdaFastify, { type PromiseHandler } from 'aws-lambda-fastify';
-import { loadConfig } from '../platform/config.ts';
-import { buildApp } from '../app.ts';
+import { buildRuntimeApp } from '../platform/http-runtime.ts';
 
 /**
  * Build the API Gateway (HTTP API v2) → Fastify handler.
  *
  * @throws {ConfigError} at construction time (cold start) when the injected
- *   environment is invalid — e.g. a deployed function that did not receive its
- *   `DATABASE_URL`/secret ARNs from the stack.
+ *   database, public JWT trust settings or public origin are absent/invalid.
+ *   No secret-ARN discovery or fallback credentials are performed here.
  */
 export function createHttpHandler(): PromiseHandler {
-  const app = buildApp({ config: loadConfig() });
+  const { app } = buildRuntimeApp();
   const bridge = awsLambdaFastify(app);
   // Warm routing/table once per cold start (URL-7 semantics, preserved).
   const ready = app.ready();

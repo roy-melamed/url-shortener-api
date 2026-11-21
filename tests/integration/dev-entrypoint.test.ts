@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
+import { runtimeFixtureEnvironment } from '../helpers/http-runtime-environment.ts';
 
 /**
  * URL-7 rework smoke check (Dwight blocker: AC1/AC2 `npm run dev`).
@@ -46,6 +47,28 @@ function relativeSpecifiers(source: string): string[] {
 }
 
 describe('dev entrypoint module resolution (AC1/AC2 guard)', () => {
+  it('fails fast on missing runtime trust config instead of starting a route-less server', async () => {
+    const child = spawn(process.execPath, ['--experimental-strip-types', 'src/index.ts'], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        ...runtimeFixtureEnvironment({ JWT_PUBLIC_KEY_PEM: '' }),
+        PORT: String(20000 + Math.floor(Math.random() * 20000)),
+      },
+      stdio: ['ignore', 'ignore', 'pipe'],
+      timeout: 5_000,
+    });
+    let stderr = '';
+    child.stderr!.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-8192);
+    });
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    });
+    expect(code).toBe(1);
+    expect(stderr).toContain('Invalid HTTP runtime configuration');
+  });
   it('every relative specifier in src/** literally resolves on disk (Node-native rule)', () => {
     const srcDir = path.join(repoRoot, 'src');
     const files = listTsFiles(srcDir);
@@ -73,16 +96,16 @@ describe('dev entrypoint module resolution (AC1/AC2 guard)', () => {
     expect(problems, `Node-native resolution problems:\n${problems.join('\n')}`).toEqual([]);
   });
 
-  it('boots the real dev entrypoint and serves GET /healthz 200', async () => {
+  it('boots the real dev entrypoint, serves health and routes anonymous create to auth401, not404', async () => {
     const port = 20000 + Math.floor(Math.random() * 20000);
     const child = spawn(process.execPath, ['--experimental-strip-types', 'src/index.ts'], {
       cwd: repoRoot,
       env: {
         ...process.env,
+        ...runtimeFixtureEnvironment(),
         NODE_ENV: 'development',
         LOG_LEVEL: 'silent',
         PORT: String(port),
-        DATABASE_URL: 'postgres://smoke:smoke@localhost:5432/smoke',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -115,6 +138,28 @@ describe('dev entrypoint module resolution (AC1/AC2 guard)', () => {
       expect(response, `server never became reachable.\nstderr:\n${stderr}`).toBeDefined();
       expect(response!.status).toBe(200);
       expect(await response!.json()).toEqual({ status: 'ok' });
+      const create = await fetch(`${baseUrl}/v1/links`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-request-id': 'runtime-local-create' },
+        body: JSON.stringify({ destinationUrl: 'https://destination.example.invalid/' }),
+      });
+      expect(create.status).toBe(401);
+      expect(await create.json()).toEqual({
+        error: {
+          code: 'UNAUTHENTICATED',
+          message: 'Invalid credentials.',
+          requestId: 'runtime-local-create',
+        },
+      });
+      const invalid = await fetch(`${baseUrl}/v1/links`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          destinationUrl: 'https://destination.example.invalid/',
+          slug: 'my-campaign',
+        }),
+      });
+      expect(invalid.status).toBe(400); // X-5 strict rejection remains, not acceptance.
       expect(stderr).not.toMatch(/ERR_MODULE_NOT_FOUND|Cannot find module/);
     } finally {
       child.kill('SIGTERM');
