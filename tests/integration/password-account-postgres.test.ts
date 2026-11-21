@@ -11,6 +11,7 @@ import type { VerificationMessage } from '../../src/auth/contracts.ts';
 import { ApiKeys } from '../../src/auth/api-keys.ts';
 import { PostgresApiKeyStore } from '../../src/auth/postgres-api-key-store.ts';
 import { registerLinkCreationPostgresCases } from '../helpers/link-creation-postgres-cases.ts';
+import { registerHttpRuntimePostgresCases } from '../helpers/http-runtime-postgres-cases.ts';
 
 const databaseUrl = process.env.TEST_ACCOUNT_DATABASE_URL;
 const suite = databaseUrl ? describe : describe.skip;
@@ -25,6 +26,7 @@ const input = { email: 'fixture@example.invalid', password: 'fixture-password-lo
 
 suite('real PostgreSQL account transactions and URL-8 cascade contract', () => {
   registerLinkCreationPostgresCases(() => pool);
+  registerHttpRuntimePostgresCases(() => pool);
   beforeAll(async () => {
     const url = new URL(databaseUrl!);
     if (url.hostname !== '127.0.0.1' || url.pathname !== '/account_auth_test')

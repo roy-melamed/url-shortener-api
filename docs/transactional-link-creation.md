@@ -33,12 +33,16 @@ const app = buildApp({
 });
 ```
 
-The URL-shortener service owns the injected service/pool lifetimes. No new pool,
-secret discovery, connection target, schema or default deployment activation is
-introduced. Existing entrypoints, like the account/key units, require explicit
-owner-provided composition before exposing these routes. Missing trusted auth
-with a supplied links service is a construction error, never anonymous creation.
-The public origin is trusted configuration, not Host/Forwarded headers.
+The snippet shows the lower-level dependency-injection seam. The shipped local
+and Lambda entrypoints now use the shared production `buildRuntimeApp` in
+`src/platform/http-runtime.ts`, which actually constructs the PostgreSQL stores,
+public-only JWT verifier, bearer resolver and links service. See
+[runtime configuration and regression evidence](http-runtime-composition.md).
+It owns a lazy pool per runtime and closes it with the application. Required
+owner-injected trust/origin settings fail fast if absent/invalid; there is no
+secret discovery, default origin/key, schema change or deployment activation.
+Missing trusted auth with a supplied links service remains a construction error,
+never anonymous creation. Public origin is not taken from Host/Forwarded headers.
 
 One module-cached `processRequestLimiter` is shared by default across app builds
 and future routes in the same process. An explicit `requestLimiter` override is

@@ -39,23 +39,23 @@ export class ArgonPasswords implements PasswordHasher {
   }
 }
 
-export interface AccessTokenOptions {
-  privateKey: KeyObject;
+export interface AccessTokenVerificationOptions {
   publicKey: KeyObject;
   issuer: string;
   audience: string;
   kid: string;
 }
+export interface AccessTokenOptions extends AccessTokenVerificationOptions {
+  privateKey: KeyObject;
+}
 
-export class JoseAccessTokens implements AccessTokens {
-  private readonly options: AccessTokenOptions;
+/** Same URL-9 verifier, usable by runtime consumers without a signing key. */
+export class JoseAccessTokenVerifier implements Pick<AccessTokens, 'verify'> {
+  protected readonly options: AccessTokenVerificationOptions;
 
-  constructor(options: AccessTokenOptions) {
+  constructor(options: AccessTokenVerificationOptions) {
     if (
       !options ||
-      !(options.privateKey instanceof KeyObject) ||
-      options.privateKey.type !== 'private' ||
-      options.privateKey.asymmetricKeyType !== 'rsa' ||
       !(options.publicKey instanceof KeyObject) ||
       options.publicKey.type !== 'public' ||
       options.publicKey.asymmetricKeyType !== 'rsa' ||
@@ -65,25 +65,12 @@ export class JoseAccessTokens implements AccessTokens {
     ) {
       throw new Error('Invalid session configuration.');
     }
-    this.options = { ...options };
-  }
-
-  async issue(userId: string, now: Date): Promise<string> {
-    try {
-      const issuedAt = Math.floor(now.getTime() / 1000);
-      if (!isUuid(userId) || !Number.isSafeInteger(issuedAt)) throw new Error();
-      return await new SignJWT({})
-        .setProtectedHeader({ alg: 'RS256', typ: 'JWT', kid: this.options.kid })
-        .setSubject(userId)
-        .setIssuer(this.options.issuer)
-        .setAudience(this.options.audience)
-        .setIssuedAt(issuedAt)
-        .setExpirationTime(issuedAt + accessLifetimeSeconds)
-        .setJti(randomUUID())
-        .sign(this.options.privateKey);
-    } catch {
-      throw new Error('Session issuance unavailable.');
-    }
+    this.options = {
+      publicKey: options.publicKey,
+      issuer: options.issuer,
+      audience: options.audience,
+      kid: options.kid,
+    };
   }
 
   async verify(token: string, now: Date): Promise<string> {
@@ -113,6 +100,38 @@ export class JoseAccessTokens implements AccessTokens {
       return payload.sub;
     } catch {
       throw new AppError(401, 'UNAUTHENTICATED', 'Invalid session.');
+    }
+  }
+}
+
+/** URL-9 issuer contract retained; issuance/refresh semantics are unchanged. */
+export class JoseAccessTokens extends JoseAccessTokenVerifier implements AccessTokens {
+  private readonly privateKey: KeyObject;
+  constructor(options: AccessTokenOptions) {
+    super(options);
+    if (
+      !(options.privateKey instanceof KeyObject) ||
+      options.privateKey.type !== 'private' ||
+      options.privateKey.asymmetricKeyType !== 'rsa'
+    )
+      throw new Error('Invalid session configuration.');
+    this.privateKey = options.privateKey;
+  }
+  async issue(userId: string, now: Date): Promise<string> {
+    try {
+      const issuedAt = Math.floor(now.getTime() / 1000);
+      if (!isUuid(userId) || !Number.isSafeInteger(issuedAt)) throw new Error();
+      return await new SignJWT({})
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT', kid: this.options.kid })
+        .setSubject(userId)
+        .setIssuer(this.options.issuer)
+        .setAudience(this.options.audience)
+        .setIssuedAt(issuedAt)
+        .setExpirationTime(issuedAt + accessLifetimeSeconds)
+        .setJti(randomUUID())
+        .sign(this.privateKey);
+    } catch {
+      throw new Error('Session issuance unavailable.');
     }
   }
 }
