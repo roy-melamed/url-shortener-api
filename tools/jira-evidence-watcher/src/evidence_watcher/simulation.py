@@ -32,12 +32,12 @@ class VirtualClock:
     def __init__(self, now: str, jitter: tuple[float, ...] = (0.0,)):
         self.now = utc(now)
         require(type(jitter) is tuple and bool(jitter) and all(type(v) in {int, float}
-                and math.isfinite(v) and 0 <= v <= 1 for v in jitter), "jitter-invalid")
+                and 0 <= v <= 1 and math.isfinite(v) for v in jitter), "jitter-invalid")
         self._jitter, self._index = jitter, 0
 
     def advance(self, seconds: float) -> None:
-        require(type(seconds) in {int, float} and math.isfinite(seconds) and seconds >= 0, "clock-step-invalid")
         try:
+            require(type(seconds) in {int, float} and math.isfinite(seconds) and seconds >= 0, "clock-step-invalid")
             self.now += timedelta(seconds=seconds)
         except OverflowError:
             raise OfflineError("clock-step-invalid") from None
@@ -114,8 +114,11 @@ class FixtureTransport:
 
 
 def retry_seconds(value: object, now: datetime) -> float:
-    if type(value) in {int, float} and math.isfinite(value) and value >= 0:
-        return float(value)
+    try:
+        if type(value) in {int, float} and math.isfinite(value) and value >= 0:
+            return float(value)
+    except OverflowError:
+        raise OfflineError("retry-delay-out-of-range") from None
     if isinstance(value, str):
         if value.isascii() and value.isdigit() and len(value) <= 10:
             return float(value)

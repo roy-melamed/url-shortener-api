@@ -235,6 +235,58 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(store.state()["revision"], 0)
             self.assertIsNone(store.state()["completed_upper"])
 
+    def test_huge_literal_retry_after_is_redacted_and_stops_after_one_request(self):
+        digits = "9" * 400
+        failures = '[{"status":429,"retry_after":' + digits + '}]'
+        with DisposableState() as state:
+            store = state.create(CONFIG, FENCE, CREATED)
+            worker, _, transport, clock = scanner(store, failures=failures)
+            before = clock.now
+            with self.assertRaisesRegex(OfflineError, "^retry-delay-out-of-range$") as caught:
+                worker.poll()
+            self.assertEqual(str(caught.exception), "retry-delay-out-of-range")
+            self.assertNotIn(digits, str(caught.exception))
+            self.assertEqual(len(transport.calls), 1)
+            self.assertEqual(clock.now, before)
+            self.assertEqual(store.state()["retry_cycles"], 0)
+            self.assertEqual(store.state()["revision"], 0)
+            self.assertIsNone(store.state()["completed_upper"])
+            self.assertIsNone(store.state()["full_upper"])
+            self.assertEqual(store.counts()["processed_events"], 0)
+            self.assertEqual(store.counts()["notification_outbox"], 0)
+
+    def test_huge_clock_numbers_use_fixed_errors_without_changing_time(self):
+        huge = 10 ** 400
+        clock = VirtualClock(NOW)
+        before = clock.now
+        for value in (huge, -huge, 1e300):
+            with self.subTest(operation="advance", value_type=type(value).__name__):
+                with self.assertRaisesRegex(OfflineError, "^clock-step-invalid$") as caught:
+                    clock.advance(value)
+                self.assertEqual(str(caught.exception), "clock-step-invalid")
+                self.assertEqual(clock.now, before)
+        for value in (huge, -huge, 1e300):
+            with self.subTest(operation="jitter", value_type=type(value).__name__):
+                with self.assertRaisesRegex(OfflineError, "^jitter-invalid$") as caught:
+                    VirtualClock(NOW, (value,))
+                self.assertEqual(str(caught.exception), "jitter-invalid")
+
+    def test_finite_numeric_clock_and_retry_values_keep_existing_behavior(self):
+        clock = VirtualClock(NOW, (0, 0.5, 1))
+        self.assertEqual([clock.fraction() for _ in range(4)], [0, 0.5, 1, 0])
+        before = clock.now
+        for value in (0, 1, 0.5):
+            clock.advance(value)
+            self.assertEqual(retry_seconds(value, clock.now), float(value))
+        self.assertEqual(clock.now, before + timedelta(seconds=1.5))
+        for value in (None, "invalid", -1, float("inf"), float("nan"), True, {}, []):
+            self.assertEqual(retry_seconds(value, clock.now), 0)
+        for value in (-1, float("inf"), float("nan"), True, "1", None):
+            with self.assertRaisesRegex(OfflineError, "^clock-step-invalid$"):
+                clock.advance(value)
+            with self.assertRaisesRegex(OfflineError, "^jitter-invalid$"):
+                VirtualClock(NOW, (value,))
+
     def test_live_like_or_subclass_collaborators_are_refused(self):
         class PretendTransport(FixtureTransport):
             pass
