@@ -8,6 +8,209 @@ import {
 import { ownerFixture, ownerPlan, fence, later } from '../helpers/owner-recommendation-fixture.ts';
 
 describe('pure Agent Owner recommendations (not historical Assignee handoff)', () => {
+  it('consumes protected holds before cross-issue/altered-payload replay, carrying every returned hold state', () => {
+    const f = ownerFixture();
+    const approved = { ...f.current, statusId: f.config.statuses.approved };
+    const baseline = baselineOwnerRecommendations(f.config, fence, [
+      { ...approved, updatedAt: fence, revision: 0 },
+    ]);
+    if (baseline.kind !== 'baseline') throw new Error('fixture-baseline-missing');
+    const cases = [
+      { state: f.state, event: { ...f.event, toStatusId: approved.statusId }, current: approved },
+      {
+        state: f.state,
+        event: { ...f.event, fromStatusId: approved.statusId },
+        current: f.current,
+      },
+      { state: f.state, event: f.event, current: { ...f.current, protectedHistory: true } },
+      { state: baseline.state, event: f.event, current: f.current },
+      {
+        state: f.state,
+        event: { ...f.event, at: fence, revision: 0 },
+        current: { ...approved, updatedAt: fence, revision: 0 },
+      },
+    ];
+    for (const item of cases) {
+      const before = JSON.stringify(item);
+      const held = recommendAgentOwner(f.config, item.state, item.event, item.current, 'ryan');
+      expect(held).toMatchObject({ kind: 'hold', reason: 'protected-history' });
+      if (held.kind !== 'hold' || !held.state) throw new Error('fixture-state-missing');
+      expect(held.state.seen).toHaveLength(1);
+      expect(held.state.protected).toHaveLength(1);
+      let state = held.state;
+      for (const patch of [
+        { issueId: '990002' },
+        {
+          issueId: '990003',
+          revision: 2,
+          updatedAt: '2026-01-01T00:02:00.000Z',
+          statusId: '10006',
+        },
+      ]) {
+        const other = { ...f.current, ...patch };
+        const event = {
+          ...f.event,
+          issueId: other.issueId,
+          toStatusId: other.statusId,
+          revision: other.revision,
+          at: other.updatedAt,
+        };
+        const replay = recommendAgentOwner(f.config, state, event, other, 'human');
+        expect(replay).toMatchObject({ kind: 'hold', reason: 'duplicate-event' });
+        expect(
+          ownerRecommendationStillCurrent(
+            replay.kind === 'recommendation' ? replay.proposal : undefined,
+            f.config,
+            'state' in replay ? replay.state : undefined,
+            other,
+          ),
+        ).toBe(false);
+        if (replay.kind !== 'hold' || !replay.state) throw new Error('fixture-state-missing');
+        state = replay.state;
+      }
+      const repeated = recommendAgentOwner(f.config, state, item.event, item.current, 'ryan');
+      expect(repeated).toMatchObject({ kind: 'hold', reason: 'protected-history', state });
+      expect(JSON.stringify(item)).toBe(before);
+    }
+  });
+
+  it('retains each reopened protected observation identity without growing on repeats', () => {
+    const f = ownerFixture();
+    const first = recommendAgentOwner(
+      f.config,
+      f.state,
+      f.event,
+      { ...f.current, protectedHistory: true },
+      'ryan',
+    );
+    if (first.kind !== 'hold' || !first.state) throw new Error('fixture-state-missing');
+    const current = { ...f.current, revision: 2, updatedAt: '2026-01-01T00:02:00.000Z' };
+    const event = { ...f.event, eventId: 'reopened-event', revision: 2, at: current.updatedAt };
+    const reopened = recommendAgentOwner(f.config, first.state, event, current, 'dwight');
+    if (reopened.kind !== 'hold' || !reopened.state) throw new Error('fixture-state-missing');
+    expect(reopened.reason).toBe('protected-history');
+    expect(reopened.state.seen).toHaveLength(2);
+    expect(reopened.state.protected).toEqual(first.state.protected);
+    const repeated = recommendAgentOwner(f.config, reopened.state, event, current, 'dwight');
+    expect(repeated).toEqual(reopened);
+    if (repeated.kind !== 'hold' || !repeated.state) throw new Error('fixture-state-missing');
+    expect(
+      recommendAgentOwner(
+        f.config,
+        repeated.state,
+        { ...event, issueId: '990002' },
+        { ...current, issueId: '990002' },
+        'ryan',
+      ),
+    ).toMatchObject({ kind: 'hold', reason: 'duplicate-event' });
+  });
+
+  it('halts at full protected/seen capacity without eviction, reset or an unsafe continuation state', () => {
+    const f = ownerFixture();
+    const ids = Array.from({ length: 10000 }, (_, index) =>
+      (index + 1).toString(16).padStart(64, '0'),
+    );
+    for (const patch of [{ seen: ids }, { protected: ids }, { seen: ids, protected: ids }]) {
+      const state = { ...f.state, ...patch };
+      const before = JSON.stringify(state);
+      const result = recommendAgentOwner(
+        f.config,
+        state,
+        f.event,
+        { ...f.current, protectedHistory: true },
+        'ryan',
+      );
+      expect(result).toEqual({ kind: 'hold', reason: 'local-capacity' });
+      expect(result).not.toHaveProperty('state');
+      expect(result).not.toHaveProperty('proposal');
+      expect(JSON.stringify(state)).toBe(before);
+      expect(ownerRecommendationStillCurrent(undefined, f.config, undefined, f.current)).toBe(
+        false,
+      );
+    }
+    const near = { ...f.state, seen: ids.slice(0, 9999), protected: ids.slice(0, 9999) };
+    const held = recommendAgentOwner(
+      f.config,
+      near,
+      f.event,
+      { ...f.current, protectedHistory: true },
+      'ryan',
+    );
+    if (held.kind !== 'hold' || !held.state) throw new Error('fixture-state-missing');
+    expect(held.reason).toBe('protected-history');
+    expect(held.state.seen).toHaveLength(10000);
+    expect(held.state.protected).toHaveLength(10000);
+    expect(held.state.seen.slice(0, 9999)).toEqual(near.seen);
+    expect(held.state.protected.slice(0, 9999)).toEqual(near.protected);
+    const repeated = recommendAgentOwner(f.config, held.state, f.event, f.current, 'ryan');
+    expect(repeated).toEqual(held);
+    if (repeated.kind !== 'hold' || !repeated.state) throw new Error('fixture-state-missing');
+    const replay = recommendAgentOwner(
+      f.config,
+      repeated.state,
+      { ...f.event, issueId: '990002' },
+      { ...f.current, issueId: '990002' },
+      'ryan',
+    );
+    expect(replay).toMatchObject({ kind: 'hold', reason: 'duplicate-event' });
+    expect(
+      ownerRecommendationStillCurrent(
+        replay.kind === 'recommendation' ? replay.proposal : undefined,
+        f.config,
+        'state' in replay ? replay.state : undefined,
+        { ...f.current, issueId: '990002' },
+      ),
+    ).toBe(false);
+    const fullSeen = { ...f.state, seen: held.state.seen, protected: ids.slice(0, 9999) };
+    const sameEvent = recommendAgentOwner(
+      f.config,
+      fullSeen,
+      f.event,
+      { ...f.current, protectedHistory: true },
+      'ryan',
+    );
+    if (sameEvent.kind !== 'hold' || !sameEvent.state) throw new Error('fixture-state-missing');
+    expect(sameEvent.reason).toBe('protected-history');
+    expect(sameEvent.state.seen).toEqual(fullSeen.seen);
+    expect(sameEvent.state.protected).toHaveLength(10000);
+    const fullProtected = { ...f.state, protected: held.state.protected };
+    const newEvent = recommendAgentOwner(
+      f.config,
+      fullProtected,
+      { ...f.event, eventId: 'another-protected-event' },
+      f.current,
+      'ryan',
+    );
+    if (newEvent.kind !== 'hold' || !newEvent.state) throw new Error('fixture-state-missing');
+    expect(newEvent.reason).toBe('protected-history');
+    expect(newEvent.state.protected).toEqual(fullProtected.protected);
+    expect(newEvent.state.seen).toHaveLength(1);
+    expect(
+      recommendAgentOwner(
+        f.config,
+        newEvent.state,
+        { ...f.event, eventId: 'another-protected-event', issueId: '990002' },
+        { ...f.current, issueId: '990002' },
+        'ryan',
+      ),
+    ).toMatchObject({ kind: 'hold', reason: 'duplicate-event' });
+  });
+
+  it('preserves malformed-input validation ahead of protected event consumption', () => {
+    const f = ownerFixture();
+    const protectedCurrent = { ...f.current, protectedHistory: true };
+    for (const event of [
+      { ...f.event, eventId: 'PRIVATE\nvalue' },
+      { ...f.event, at: 'PRIVATE' },
+    ]) {
+      const before = JSON.stringify(f.state);
+      expect(recommendAgentOwner(f.config, f.state, event, protectedCurrent, 'ryan')).toEqual({
+        kind: 'hold',
+        reason: 'invalid-input',
+      });
+      expect(JSON.stringify(f.state)).toBe(before);
+    }
+  });
   it('matches the explicit normalized source configuration, without runtime discovery', () => {
     const source = JSON.parse(
       readFileSync(

@@ -47,6 +47,13 @@ No historical account/status constants are silently adopted as runtime discovery
 - Approved/current/from-or-to-Approved/protected-history observations retain a protected
   issue marker in returned state, including after reopening. All retained state
   must be passed back by the caller; no hidden mutable ledger exists.
+  Validated protected holds consume the same project-wide event identity before
+  returning, including repeated/reopened observations. Protection still takes
+  precedence over duplicate/staleness reason codes; both ledgers must have room
+  for any new fact. A full seen/protected ledger returns a capacity hold with no
+  continuation state if either required fact cannot be retained, never eviction
+  or an incomplete protected-hold state. Existing already-recorded facts need no
+  new slot, even at capacity. Preserve the original input state when blocked.
 - Evidence Review can model **only Agent Owner Human**, with an explicit matching
   snapshot, fixture role Pam, PASS and eligible=true. Missing, inconsistent, stale,
   wrong-role or wrong-outcome context holds. No transition, final evidence post,

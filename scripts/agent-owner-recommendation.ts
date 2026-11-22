@@ -322,6 +322,7 @@ export function recommendAgentOwner(
     const event = observation(eventInput),
       current = snapshot(currentInput);
     const issue = fingerprint(current.issueId);
+    const eventId = fingerprint(event.eventId);
     const protectedIssue =
       current.protectedHistory ||
       current.statusId === cfg.statuses.approved ||
@@ -330,9 +331,18 @@ export function recommendAgentOwner(
           event.toStatusId === cfg.statuses.approved)) ||
       state.protected.includes(issue);
     if (protectedIssue) {
-      if (!state.protected.includes(issue) && state.protected.length >= 10000)
+      // Protection takes precedence over duplicate/staleness reasons, but every
+      // validated protected hold must retain BOTH identities before continuing.
+      // A full ledger cannot return a state that silently forgets either fact.
+      const newProtection = !state.protected.includes(issue);
+      const newEvent = !state.seen.includes(eventId);
+      if (
+        (newProtection && state.protected.length >= 10000) ||
+        (newEvent && state.seen.length >= 10000)
+      )
         return hold('local-capacity');
-      if (!state.protected.includes(issue)) state.protected.push(issue);
+      if (newProtection) state.protected.push(issue);
+      if (newEvent) state.seen.push(eventId);
       return hold('protected-history', state);
     }
     if (
@@ -341,7 +351,6 @@ export function recommendAgentOwner(
       )
     )
       return hold('unknown-status', state);
-    const eventId = fingerprint(event.eventId);
     if (state.seen.includes(eventId)) return hold('duplicate-event', state);
     const last = state.observed.find((row) => row.issue === issue);
     if (
