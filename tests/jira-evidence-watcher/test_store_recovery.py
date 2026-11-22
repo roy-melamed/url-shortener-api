@@ -115,6 +115,37 @@ class StoreRecoveryTests(unittest.TestCase):
             self.assertEqual(second.state()["revision"], 1)
             self.assertEqual(second.counts()["notification_outbox"], 1)
 
+    def test_huge_retry_failure_preserves_completed_coverage_and_facts_on_reopen(self):
+        with DisposableState() as state:
+            store = state.create(CONFIG, FENCE, CREATED)
+            worker, _, _, clock = scanner(store)
+            worker.poll()
+            # Establish completed incremental coverage as well as baseline/full coverage.
+            worker.scan("incremental")
+            before = store.state()
+            fence = store.fence
+            tables = ("processed_events", "notification_outbox", "history_registry",
+                      "simulated_work_identities", "inventory")
+            facts = {table: [tuple(row) for row in store._db.execute("SELECT * FROM " + table)]
+                     for table in tables}
+            self.assertEqual(store.counts()["notification_outbox"], 1)
+            clock.advance(60)
+            data = fixture([row(), row(metadata("990101"))])
+            failures = '[{"status":503,"retry_after":' + "9" * 400 + '}]'
+            worker, _, transport, _ = scanner(store, data, failures=failures, clock=clock)
+            with self.assertRaisesRegex(OfflineError, "^retry-delay-out-of-range$"):
+                worker.scan("full")
+            self.assertEqual(len(transport.calls), 1)
+            store.close()
+            reopened = state.reopen(CONFIG)
+            self.assertEqual(reopened.fence, fence)
+            for field in ("baseline_complete", "completed_upper", "full_upper", "revision"):
+                self.assertEqual(reopened.state()[field], before[field])
+            for table in tables:
+                self.assertEqual([tuple(row) for row in reopened._db.execute("SELECT * FROM " + table)],
+                                 facts[table])
+            self.assertTrue(all(record["state"] == "pending-offline" for record in reopened.inspect_outbox()))
+
     def test_canonical_collision_and_foreign_key_fault_roll_back(self):
         with DisposableState() as state:
             store = state.create(CONFIG, FENCE, CREATED)
