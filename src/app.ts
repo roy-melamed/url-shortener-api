@@ -22,9 +22,16 @@ import Fastify, {
   type FastifyInstance,
   type FastifyError,
   type FastifyBaseLogger,
+  type FastifyRequest,
+  type FastifyReply,
 } from 'fastify';
 import type { AppConfig } from './platform/config.ts';
-import { createLogger, type AppLogger } from './platform/logger.ts';
+import {
+  createLogger,
+  requestCompletionEmitter,
+  type AppLogger,
+  type RequestCompletion,
+} from './platform/logger.ts';
 import { ulid } from './platform/ulid.ts';
 import { registerPasswordAccountRoutes } from './auth/routes.ts';
 import type { PasswordAccounts } from './auth/accounts.ts';
@@ -44,7 +51,7 @@ import {
 
 export interface BuildAppOptions {
   config: AppConfig;
-  /** Pre-built logger (tests / custom destinations). Defaults to config-driven. */
+  /** Privacy-protected createLogger instance (tests/custom destinations). */
   logger?: AppLogger;
   /** Explicit account dependencies; no production key/mail/pool defaults. */
   accounts?: PasswordAccounts;
@@ -67,7 +74,7 @@ interface MappedError {
 /**
  * Map any thrown value to the §5.1 error contract. Unknown/5xx errors are
  * collapsed to a safe `INTERNAL` message (no stack leakage — design §6.4);
- * the full error is still logged correlated by `requestId`.
+ * only the mapped code is included in the single completion record.
  */
 function mapError(error: unknown): MappedError {
   if (error instanceof AppError) {
@@ -128,6 +135,38 @@ export function buildApp({
   // Typed as FastifyBaseLogger so the instance keeps Fastify's default logger
   // generic (the pino AppLogger is structurally assignable to it).
   const baseLogger: FastifyBaseLogger = logger ?? createLogger(config);
+  const emitCompletion = requestCompletionEmitter(baseLogger as AppLogger);
+  const errors = new WeakMap<object, MappedError['code']>();
+  const completed = new WeakSet<object>();
+  const complete = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    durationMs = reply.elapsedTime,
+  ) => {
+    if (completed.has(request)) return;
+    completed.add(request);
+    let principal: RequestCompletion['principal'] = { type: 'anonymous', id: null };
+    if (bearerAuth) {
+      try {
+        const trusted = bearerAuth.authentication.principal(request);
+        principal = {
+          type: trusted.kind,
+          id: trusted.kind === 'apikey' ? trusted.keyId : trusted.userId,
+        };
+      } catch {
+        // No established authentication context: headers cannot supply identity.
+      }
+    }
+    emitCompletion({
+      requestId: request.id,
+      route: request.routeOptions?.url ?? 'unmatched',
+      method: request.method,
+      status: reply.statusCode,
+      durationMs: Math.round(durationMs * 1000) / 1000,
+      principal,
+      ...(errors.has(request) ? { errorCode: errors.get(request) } : {}),
+    });
+  };
   // Fastify 5: configure request-logging via a LogController instance instead of
   // the deprecated top-level `disableRequestLogging` (FSTDEP023). Binding the
   // request id under the `requestId` label (design §8.2) gives ONE canonical
@@ -139,25 +178,46 @@ export function buildApp({
   const app = Fastify({
     loggerInstance: baseLogger,
     logController,
-    // Honor an API-Gateway/caller-provided correlation id when present; a
-    // ULID is generated otherwise. Client-supplied ids are safe as correlation
-    // ids because pino JSON-encodes values (no log injection — design §8.2).
-    requestIdHeader: 'x-request-id',
-    genReqId: () => ulid(),
+    // Correlation only, never identity. Reject duplicates, commas and oversized ids.
+    requestIdHeader: false,
+    genReqId: (request) => {
+      const id = request.headers['x-request-id'];
+      const count = request.rawHeaders.filter(
+        (value, index) => index % 2 === 0 && value.toLowerCase() === 'x-request-id',
+      ).length;
+      return count === 1 && typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id)
+        ? id
+        : ulid();
+    },
+    // Router rejections occur before normal hooks. Preserve their existing wire
+    // response while observing finish via the same exactly-once completion gate.
+    frameworkErrors(error, request, reply) {
+      const started = performance.now();
+      const rejected =
+        error.code === 'FST_ERR_BAD_URL' || error.code === 'FST_ERR_MAX_PARAM_LENGTH';
+      const status = rejected ? (error.code === 'FST_ERR_BAD_URL' ? 400 : 414) : 500;
+      errors.set(request, codeForStatus(status));
+      reply.raw.once('finish', () => complete(request, reply, performance.now() - started));
+      const body = JSON.stringify(
+        rejected
+          ? { error: 'Bad Request', code: error.code, message: error.message, statusCode: status }
+          : {
+              error: 'Internal Server Error',
+              message: 'Unexpected error from async constraint',
+              statusCode: 500,
+            },
+      );
+      reply.raw.writeHead(status, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      });
+      reply.raw.end(body);
+    },
   });
 
-  // ONE structured JSON log line per request (FR-10.1, design §8.2). The
-  // `requestId` field is already bound on `request.log` via requestIdLogLabel.
+  // ONE canonical completion, independent of diagnostic level/child bindings.
   app.addHook('onResponse', async (request, reply) => {
-    request.log.info(
-      {
-        route: request.routeOptions?.url ?? 'unmatched',
-        method: request.method,
-        status: reply.statusCode,
-        durationMs: Math.round(reply.elapsedTime * 1000) / 1000,
-      },
-      'request completed',
-    );
+    complete(request, reply);
   });
 
   // Consistent error envelope (FR-7.2, design §5.1).
@@ -165,9 +225,7 @@ export function buildApp({
     const mapped = mapError(error);
     if (mapped.retryAfterSeconds !== undefined)
       reply.header('Retry-After', String(mapped.retryAfterSeconds));
-    if (mapped.statusCode >= 500) {
-      request.log.error({ err: error }, 'unhandled error');
-    }
+    errors.set(request, mapped.code);
     reply
       .status(mapped.statusCode)
       .send(
@@ -183,6 +241,7 @@ export function buildApp({
 
   // JSON 404 envelope for unmatched routes (design §3.1, §5.1).
   app.setNotFoundHandler((request, reply) => {
+    errors.set(request, 'NOT_FOUND');
     reply
       .status(404)
       .send(
