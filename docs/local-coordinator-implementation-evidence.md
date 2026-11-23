@@ -6,6 +6,13 @@ section records current implementation evidence. This is neither Pam QA nor
 final Jira acceptance evidence. The authorized review PR does not authorize a
 Jira mutation, fixture activation, deployment, merge or production operation.
 
+**Subsequent review:** PR #36 at `25e2c831e74d712f4bb6f53a830563a013ddb187`
+received Dwight's technical **FAIL**, blocking F1, despite green existing checks.
+The historical local results below do not override that verdict. The separately
+authorized corrective branch and new regression evidence are recorded in
+[`local-coordinator-final-admission-fix-evidence.md`](local-coordinator-final-admission-fix-evidence.md).
+PR #36 remains unmerged and its original head is not patched as remediation.
+
 ## Authority and provenance
 
 - Isolated checkout: `/tmp/opencode/url32-local-reconciliation-stop`.

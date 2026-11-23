@@ -243,17 +243,25 @@ class MockControl:
         snapshot = body["snapshot"]
         require(snapshot is not None and row["issue"] in snapshot["issues"] and snapshot["issues"][row["issue"]]["stage"] == row["stage"] and reconcile(snapshot, {})[row["issue"]]["outcome"] == "DRY_RUN", "effect-dependency-blocked")
         require(row["eligibility_hash"] == dependency_fingerprint(snapshot, row["issue"]), "stale-snapshot")
+        self._reservation_time(body, fence)
+        return row
+
+    def _reservation_time(self, body, fence):
         if self.clock.mono >= body["reservations"][fence[3]]["timeout"]:
             self._enabled.clear()
             raise StopNeeded("recovery")
-        return row
 
     def effect(self, fence):
         def action(body):
             row = self._fence(body, fence)
             require(row["state"] == "CLAIMED" and row.get("failure_at") is None and self.clock.mono >= row["next"], "effect-not-eligible")
-            # Validation and initiation are inside the SAME gate/transaction.
-            self.sink._initiate(fence)
+            # Dependency validation may take time. Resample expiry/lease/job time
+            # at the final boundary, serialized with explicit mock clock advances.
+            # The journal gate remains held across validation AND initiation.
+            with self.clock.admission_gate:
+                self._guard(body)
+                self._reservation_time(body, fence)
+                self.sink._initiate(fence)
             row["state"] = "INFLIGHT"
             return {"outcome": "MOCK_INITIATED", "operation": fence[3]}
         return self._normal("mock-effect-initiation", action)
@@ -317,7 +325,10 @@ class MockControl:
         def action(body):
             self._fence(body, fence)
             require(reference in body["handles"] and not body["handles"][reference]["revoked"], "handle-revoked")
-            self.sink._read(reference)
+            with self.clock.admission_gate:
+                self._guard(body)
+                self._reservation_time(body, fence)
+                self.sink._read(reference)
             return {"reference": reference, "secret": False}
         return self._normal("mock-handle-use", action)
 

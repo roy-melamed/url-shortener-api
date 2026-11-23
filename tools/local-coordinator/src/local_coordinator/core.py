@@ -1,10 +1,11 @@
 """Deterministic policies; no I/O, clock discovery, scheduling or effect adapters."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import re
 from pathlib import PurePath
+from threading import RLock
 
 SECOND = 1_000_000_000
 DAY = 86400 * SECOND
@@ -85,11 +86,28 @@ class MockClock:
     mono: int = 0
     boot: str = "mock-boot"
     suspend_supported: bool = False
+    _admission_gate: object = field(default_factory=RLock, init=False, repr=False, compare=False)
+
+    def __setattr__(self, name, value):
+        # Fault-injection assignments must obey the same boundary as advance().
+        # The lock is constructed only by explicit MockClock initialization.
+        gate = getattr(self, "_admission_gate", None)
+        if gate is None:
+            object.__setattr__(self, name, value)
+        else:
+            with gate:
+                object.__setattr__(self, name, value)
+
+    @property
+    def admission_gate(self):
+        """Serialize explicit mock clock advancement with final sink admission."""
+        return self._admission_gate
 
     def advance(self, amount):
         require(type(amount) is int and 0 <= amount <= 365 * DAY, "clock-step-invalid")
-        self.utc += amount
-        self.mono += amount
+        with self._admission_gate:
+            self.utc += amount
+            self.mono += amount
 
 
 def validate_document(document_path, expected_revision, content):

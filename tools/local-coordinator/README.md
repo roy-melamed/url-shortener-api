@@ -61,6 +61,14 @@ its history is a prefix of current history, appends the authoritative suffix,
 and records rollback only in the candidate. Original DB/WAL and snapshot remain
 unchanged. Divergent histories are quarantined, not merged heuristically.
 
+The F1 correction rechecks trusted clock/expiry, lease and job timeout **after**
+fence/dependency validation, immediately before each sink effect/handle read.
+Final validation and sink recording share the explicit mock clock's admission
+lock while the journal gate remains held. Both `advance()` and direct mock clock
+field assignments use that lock: time can advance during expensive validation,
+but cannot slip between the final sample and the sink record. This serializes
+the trusted disposable fake only; it is not a provider-native clock/stop control.
+
 ## Injected control contracts
 
 `MockControl.invoke` implements the reviewed command shapes as method calls, not
@@ -100,14 +108,17 @@ predicates, not authenticated operator identity or provider termination.
 
 ## Evidence and remaining external gates
 
-See the latest resumed-check report in
+The original PR #36 received a blocking technical FAIL for the final-boundary
+expiry race. Its review and earlier evidence remain preserved. See the corrective
+implementation and test evidence in
+[`../../docs/local-coordinator-final-admission-fix-evidence.md`](../../docs/local-coordinator-final-admission-fix-evidence.md),
+and the earlier resumed-check history in
 [`../../docs/local-coordinator-implementation-evidence.md`](../../docs/local-coordinator-implementation-evidence.md)
 for executed checks and local acceptance traceability. There is
 no CLI/listener, real credential, external revocation, service, deployment or
 production readiness claim. Real custody, native expiry, operator authentication,
 quota/$0 proof, provider permissions and GATE-0 remain blocked and out of scope.
 
-After safe cache-only disk recovery, the required repository checks and focused
-suite were rerun successfully without changing the backup reserve. The evidence
-document preserves the earlier disk-blocked attempts and the new results. A
-review PR is not approval to merge, activate a fixture or deploy anything.
+The corrective branch retains the original implementation commit but does not
+modify or merge PR #36. A new review PR is not approval to merge, activate a
+fixture or deploy anything. Required checks use the unchanged backup reserve.
